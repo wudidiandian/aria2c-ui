@@ -1,7 +1,7 @@
 {
   "default_download_dir": "E:\\VSCodeProjects\\aria2c-ui\\downloads",
-  "default_connections": 4,
-  "default_splits": 4,
+  "default_connections": 1,
+  "default_splits": 1,
   "max_concurrent_downloads": 5,
   "max_overall_download_limit": null,
   "aria2_rpc_port": 16800,
