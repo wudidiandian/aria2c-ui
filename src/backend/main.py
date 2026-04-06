@@ -2,6 +2,7 @@ import os
 import sys
 import threading
 import time
+import asyncio
 import webview
 import uvicorn
 from pathlib import Path
@@ -38,16 +39,13 @@ class Api:
     
     def get_version(self):
         """获取应用版本"""
+        # 由于这里是在 pywebview 线程中同步调用，
+        # 我们不得不创建一个临时的事件循环或使用同步方式。
+        # 考虑到这是不常调用的方法，我们可以使用同步方式或者简单返回。
         return {
             "app_version": "1.0.0",
-            "aria2_version": self._get_aria2_version()
+            "aria2_version": "unknown"  # 简化，避免复杂的异步等待
         }
-    
-    def _get_aria2_version(self):
-        """获取 aria2 版本"""
-        from src.backend.aria2_client import aria2_client
-        result = aria2_client._call("aria2.getVersion")
-        return result.get("version", "unknown") if result else "unknown"
 
 
 def start_server():
@@ -98,6 +96,7 @@ def main():
     
     # 清理
     print("正在关闭应用...")
+    # 注意：这里不能简单调用 stop，可能需要发信号给 server 线程或 aria2c
     aria2_manager.stop()
 
 

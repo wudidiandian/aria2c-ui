@@ -1,5 +1,6 @@
-import requests
+import httpx
 import json
+import asyncio
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
@@ -14,12 +15,13 @@ def log_with_time(message):
 
 
 class Aria2Client:
-    """aria2 RPC 客户端"""
+    """aria2 RPC 客户端 (异步版)"""
     
     def __init__(self):
         self._rpc_url = None
         self._rpc_secret = None
         self.request_id = 0
+        self._client: Optional[httpx.AsyncClient] = None
         
     @property
     def rpc_url(self):
@@ -32,9 +34,20 @@ class Aria2Client:
         if self._rpc_secret is None:
             self._rpc_secret = config_manager.config.aria2_rpc_secret
         return self._rpc_secret
+
+    async def get_client(self) -> httpx.AsyncClient:
+        """获取异步 HTTP 客户端"""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=10.0)
+        return self._client
+
+    async def close(self):
+        """关闭客户端"""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
         
-    def _call(self, method: str, params: List[Any] = None, retries: int = 3, timeout: int = 15) -> Optional[Any]:
-        """调用 aria2 RPC 方法"""
+    async def _call(self, method: str, params: List[Any] = None, retries: int = 1, timeout: float = 5.0) -> Optional[Any]:
+        """调用 aria2 RPC 方法 (异步)"""
         self.request_id += 1
         
         # 构建参数
@@ -51,87 +64,66 @@ class Aria2Client:
             "params": rpc_params
         }
         
-        # 重试机制
-        for attempt in range(retries):
+        # 对于查询类操作，进一步压缩超时和重试
+        is_query = method in ["aria2.tellActive", "aria2.tellWaiting", "aria2.tellStopped", "aria2.getGlobalStat"]
+        if is_query:
+            timeout = 2.0
+            retries = 0
+
+        client = await self.get_client()
+        
+        for attempt in range(retries + 1):
             try:
-                response = requests.post(
+                response = await client.post(
                     self.rpc_url,
                     json=payload,
-                    timeout=timeout  # 使用自定义超时时间
+                    timeout=timeout
                 )
                 response.raise_for_status()
                 result = response.json()
                 
                 if "error" in result:
-                    # 只在出错时打印
-                    if method not in ["aria2.tellActive", "aria2.tellWaiting", "aria2.tellStopped", "aria2.getGlobalStat"]:
+                    if not is_query:
                         log_with_time(f"RPC 错误: {result['error']}")
                     return None
                 
                 return result.get("result")
-            except requests.exceptions.Timeout:
-                log_with_time(f"RPC 调用超时 ({method})")
-                if attempt < retries - 1:
-                    log_with_time(f"重试中... ({attempt + 1}/{retries})")
-                    import time
-                    time.sleep(1)  # 等待1秒后重试
+            except (httpx.TimeoutException, httpx.ConnectError) as e:
+                if attempt < retries:
+                    await asyncio.sleep(0.5)
                     continue
-                else:
-                    log_with_time(f"RPC 调用超时，已达到最大重试次数")
-                    return None
-            except requests.exceptions.ConnectionError as e:
-                log_with_time(f"RPC 连接错误: {e}")
-                # 连接错误可能是 aria2c 崩溃了，尝试重新启动
-                if attempt == retries - 1:
-                    log_with_time("尝试重新启动 aria2c...")
-                    from .aria2_process import aria2_manager
-                    try:
-                        aria2_manager.stop()
-                        time.sleep(1)
-                        if aria2_manager.start():
-                            log_with_time("aria2c 重新启动成功，重试 RPC 调用")
-                            continue
-                    except Exception as restart_error:
-                        log_with_time(f"重新启动 aria2c 失败: {restart_error}")
+                if not is_query:
+                    log_with_time(f"RPC 调用失败 ({method}): {e}")
                 return None
             except Exception as e:
-                # 只在非查询操作时打印错误
-                if method not in ["aria2.tellActive", "aria2.tellWaiting", "aria2.tellStopped", "aria2.getGlobalStat"]:
-                    log_with_time(f"RPC 调用失败: {e}")
+                if not is_query:
+                    log_with_time(f"RPC 异常 ({method}): {e}")
                 return None
         
         return None
     
-    def add_task(self, task_create: DownloadTaskCreate) -> Optional[str]:
+    async def add_task(self, task_create: DownloadTaskCreate) -> Optional[str]:
         """添加下载任务"""
         log_with_time(f"添加任务: urls={task_create.urls}, save_dir={task_create.save_dir}")
         
-        # 确定保存目录
         save_dir = task_create.save_dir or config_manager.config.default_download_dir
         
-        # 构建选项
         options = {
             "dir": save_dir,
-            "max-connection-per-server": task_create.connections,
-            "split": task_create.splits,
+            "max-connection-per-server": str(task_create.connections),
+            "split": str(task_create.splits),
             "min-split-size": "1M",
         }
         
-        # 自定义文件名
         if task_create.filename:
             options["out"] = task_create.filename
             
-        # 单任务限速
         if task_create.max_speed:
             options["max-download-limit"] = self._parse_speed(task_create.max_speed)
         
-        log_with_time(f"调用 aria2.addUri，选项: {options}")
-        
-        # 调用 aria2.addUri，使用较短的超时时间5秒，只重试1次
-        result = self._call("aria2.addUri", [task_create.urls, options], retries=1, timeout=5)
-        
+        result = await self._call("aria2.addUri", [task_create.urls, options], retries=1, timeout=5.0)
         log_with_time(f"aria2.addUri 结果: {result}")
-        return result  # 返回 gid
+        return result
     
     def _parse_speed(self, speed: str) -> str:
         """解析速度字符串为 aria2 格式"""
@@ -144,88 +136,83 @@ class Aria2Client:
             return str(int(float(speed[:-1]) * 1024 * 1024 * 1024))
         return speed
     
-    def get_task(self, gid: str) -> Optional[DownloadTask]:
+    async def get_task(self, gid: str) -> Optional[DownloadTask]:
         """获取单个任务信息"""
-        result = self._call("aria2.tellStatus", [gid])
+        result = await self._call("aria2.tellStatus", [gid])
         if not result:
             return None
         return self._parse_task(result)
     
-    def get_active_tasks(self) -> List[DownloadTask]:
+    async def get_active_tasks(self) -> List[DownloadTask]:
         """获取活动任务列表"""
-        result = self._call("aria2.tellActive")
+        result = await self._call("aria2.tellActive")
         if not result:
             return []
         return [self._parse_task(t) for t in result]
     
-    def get_waiting_tasks(self) -> List[DownloadTask]:
+    async def get_waiting_tasks(self) -> List[DownloadTask]:
         """获取等待任务列表"""
-        result = self._call("aria2.tellWaiting", [0, 100])
+        result = await self._call("aria2.tellWaiting", [0, 100])
         if not result:
             return []
         return [self._parse_task(t) for t in result]
     
-    def get_stopped_tasks(self) -> List[DownloadTask]:
+    async def get_stopped_tasks(self) -> List[DownloadTask]:
         """获取已停止任务列表"""
-        result = self._call("aria2.tellStopped", [0, 100])
+        result = await self._call("aria2.tellStopped", [0, 100])
         if not result:
             return []
         return [self._parse_task(t) for t in result]
     
-    def get_all_tasks(self) -> List[DownloadTask]:
-        """获取所有任务"""
+    async def get_all_tasks(self) -> List[DownloadTask]:
+        """获取所有任务 (并发查询)"""
+        # 使用 asyncio.gather 并发执行三个查询
+        active_task = self.get_active_tasks()
+        waiting_task = self.get_waiting_tasks()
+        stopped_task = self.get_stopped_tasks()
+        
+        results = await asyncio.gather(active_task, waiting_task, stopped_task, return_exceptions=True)
+        
         tasks = []
-        tasks.extend(self.get_active_tasks())
-        tasks.extend(self.get_waiting_tasks())
-        tasks.extend(self.get_stopped_tasks())
+        for res in results:
+            if isinstance(res, list):
+                tasks.extend(res)
         return tasks
     
-    def pause_task(self, gid: str) -> bool:
+    async def pause_task(self, gid: str) -> bool:
         """暂停任务"""
-        log_with_time(f"暂停任务: gid={gid}")
-        result = self._call("aria2.pause", [gid])
-        log_with_time(f"暂停结果: {result}")
+        result = await self._call("aria2.pause", [gid])
         return result is not None
     
-    def pause_all(self) -> bool:
+    async def pause_all(self) -> bool:
         """暂停所有任务"""
-        result = self._call("aria2.pauseAll")
+        result = await self._call("aria2.pauseAll")
         return result is not None
     
-    def resume_task(self, gid: str) -> bool:
+    async def resume_task(self, gid: str) -> bool:
         """继续任务"""
-        log_with_time(f"继续任务: gid={gid}")
-        result = self._call("aria2.unpause", [gid])
-        log_with_time(f"继续结果: {result}")
+        result = await self._call("aria2.unpause", [gid])
         return result is not None
     
-    def resume_all(self) -> bool:
+    async def resume_all(self) -> bool:
         """继续所有任务"""
-        result = self._call("aria2.unpauseAll")
+        result = await self._call("aria2.unpauseAll")
         return result is not None
     
-    def remove_task(self, gid: str) -> bool:
+    async def remove_task(self, gid: str) -> bool:
         """删除任务"""
-        log_with_time(f"删除任务: gid={gid}")
-        
         # 先尝试从活动/等待列表中移除
-        result = self._call("aria2.remove", [gid])
+        result = await self._call("aria2.remove", [gid])
         if result:
-            log_with_time(f"从活动列表删除成功: {result}")
             return True
         
         # 如果失败，尝试从已停止列表中移除
-        result = self._call("aria2.removeDownloadResult", [gid])
-        if result:
-            log_with_time(f"从已停止列表删除成功: {result}")
-            return True
-        
-        log_with_time(f"删除失败")
-        return False
+        result = await self._call("aria2.removeDownloadResult", [gid])
+        return result is not None
     
-    def get_global_stats(self) -> GlobalStats:
+    async def get_global_stats(self) -> GlobalStats:
         """获取全局统计"""
-        result = self._call("aria2.getGlobalStat")
+        result = await self._call("aria2.getGlobalStat")
         if not result:
             return GlobalStats()
         
@@ -238,11 +225,10 @@ class Aria2Client:
         )
     
     def _parse_task(self, data: Dict[str, Any]) -> DownloadTask:
-        """解析 aria2 任务数据"""
+        """解析 aria2 任务数据 (保持同步解析)"""
         gid = data.get("gid", "")
         status_str = data.get("status", "error")
         
-        # 映射状态
         status_map = {
             "active": TaskStatus.ACTIVE,
             "waiting": TaskStatus.WAITING,
@@ -253,45 +239,27 @@ class Aria2Client:
         }
         status = status_map.get(status_str, TaskStatus.ERROR)
         
-        # 计算进度
         total_length = int(data.get("totalLength", 0))
         completed_length = int(data.get("completedLength", 0))
         progress = (completed_length / total_length * 100) if total_length > 0 else 0
         
-        # 获取下载速度
         download_speed = int(data.get("downloadSpeed", 0))
         
-        # 获取连接数信息
-        connections = 0
-        if "connections" in data:
-            connections = int(data.get("connections", 0))
+        connections = int(data.get("connections", 0))
+        splits = int(data.get("numPieces", 0))
         
-        # 获取分片数
-        splits = 0
-        if "numPieces" in data:
-            splits = int(data.get("numPieces", 0))
+        error_message = data.get("errorMessage") if status == TaskStatus.ERROR else None
         
-        # 获取错误信息
-        error_message = None
-        if status == TaskStatus.ERROR:
-            error_message = data.get("errorMessage", "未知错误")
-        
-        # 获取文件信息
         files = data.get("files", [])
         urls = []
-        if files and len(files) > 0:
+        filename = None
+        if files:
             uris = files[0].get("uris", [])
             urls = [u.get("uri", "") for u in uris if u.get("uri")]
-        
-        # 获取保存目录和文件名
-        save_dir = data.get("dir", "")
-        filename = None
-        if files and len(files) > 0:
             path = files[0].get("path", "")
             if path:
                 filename = path.split("/")[-1].split("\\")[-1]
         
-        # 获取选项中的连接数和分片数
         options = data.get("options", {})
         opt_connections = int(options.get("max-connection-per-server", 16))
         opt_splits = int(options.get("split", 16))
@@ -299,7 +267,7 @@ class Aria2Client:
         return DownloadTask(
             gid=gid,
             urls=urls,
-            save_dir=save_dir,
+            save_dir=data.get("dir", ""),
             filename=filename,
             status=status,
             total_length=total_length,
@@ -309,7 +277,7 @@ class Aria2Client:
             splits=splits or opt_splits,
             progress=round(progress, 2),
             error_message=error_message,
-            created_at=datetime.now(),  # aria2 不直接提供创建时间
+            created_at=datetime.now(),
             completed_at=datetime.now() if status == TaskStatus.COMPLETE else None
         )
 

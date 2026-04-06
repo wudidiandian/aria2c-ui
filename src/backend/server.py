@@ -36,6 +36,9 @@ async def lifespan(app: FastAPI):
     if aria2c_started:
         print("正在关闭 aria2c...")
         aria2_manager.stop()
+    
+    # 关闭异步客户端
+    await aria2_client.close()
 
 
 app = FastAPI(
@@ -85,25 +88,25 @@ async def update_config(config: AppConfig):
 @app.get("/api/tasks", response_model=List[DownloadTask])
 async def get_tasks():
     """获取所有下载任务"""
-    return aria2_client.get_all_tasks()
+    return await aria2_client.get_all_tasks()
 
 
 @app.get("/api/tasks/active", response_model=List[DownloadTask])
 async def get_active_tasks():
     """获取活动任务"""
-    return aria2_client.get_active_tasks()
+    return await aria2_client.get_active_tasks()
 
 
 @app.get("/api/tasks/waiting", response_model=List[DownloadTask])
 async def get_waiting_tasks():
     """获取等待任务"""
-    return aria2_client.get_waiting_tasks()
+    return await aria2_client.get_waiting_tasks()
 
 
 @app.get("/api/tasks/stopped", response_model=List[DownloadTask])
 async def get_stopped_tasks():
     """获取已停止任务"""
-    return aria2_client.get_stopped_tasks()
+    return await aria2_client.get_stopped_tasks()
 
 
 @app.post("/api/tasks")
@@ -115,7 +118,7 @@ async def create_task(task: DownloadTaskCreate):
     else:
         task.save_dir = config_manager.ensure_downloads_dir()
     
-    gid = aria2_client.add_task(task)
+    gid = await aria2_client.add_task(task)
     if gid:
         return {"gid": gid, "message": "任务创建成功"}
     else:
@@ -125,7 +128,7 @@ async def create_task(task: DownloadTaskCreate):
 @app.post("/api/tasks/{gid}/pause")
 async def pause_task(gid: str):
     """暂停任务"""
-    if aria2_client.pause_task(gid):
+    if await aria2_client.pause_task(gid):
         return {"message": "任务已暂停"}
     else:
         raise HTTPException(status_code=500, detail="暂停任务失败")
@@ -134,7 +137,7 @@ async def pause_task(gid: str):
 @app.post("/api/tasks/{gid}/resume")
 async def resume_task(gid: str):
     """继续任务"""
-    if aria2_client.resume_task(gid):
+    if await aria2_client.resume_task(gid):
         return {"message": "任务已继续"}
     else:
         raise HTTPException(status_code=500, detail="继续任务失败")
@@ -143,7 +146,7 @@ async def resume_task(gid: str):
 @app.delete("/api/tasks/{gid}")
 async def remove_task(gid: str):
     """删除任务"""
-    if aria2_client.remove_task(gid):
+    if await aria2_client.remove_task(gid):
         return {"message": "任务已删除"}
     else:
         raise HTTPException(status_code=500, detail="删除任务失败")
@@ -152,7 +155,7 @@ async def remove_task(gid: str):
 @app.post("/api/tasks/pause-all")
 async def pause_all_tasks():
     """暂停所有任务"""
-    if aria2_client.pause_all():
+    if await aria2_client.pause_all():
         return {"message": "所有任务已暂停"}
     else:
         raise HTTPException(status_code=500, detail="暂停任务失败")
@@ -161,7 +164,7 @@ async def pause_all_tasks():
 @app.post("/api/tasks/resume-all")
 async def resume_all_tasks():
     """继续所有任务"""
-    if aria2_client.resume_all():
+    if await aria2_client.resume_all():
         return {"message": "所有任务已继续"}
     else:
         raise HTTPException(status_code=500, detail="继续任务失败")
@@ -170,13 +173,14 @@ async def resume_all_tasks():
 @app.get("/api/stats", response_model=GlobalStats)
 async def get_global_stats():
     """获取全局统计"""
-    return aria2_client.get_global_stats()
+    return await aria2_client.get_global_stats()
 
 
 @app.get("/api/version")
 async def get_version():
     """获取 aria2 版本"""
-    result = aria2_client._call("aria2.getVersion")
+    # 这里直接调用 _call 是异步的
+    result = await aria2_client._call("aria2.getVersion")
     if result:
         return {
             "version": result.get("version"),

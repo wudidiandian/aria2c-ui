@@ -194,11 +194,16 @@ function downloadApp() {
                     // 显示加载状态
                     this.showToast('正在创建任务...', 'success');
                     
+                    // 立即关闭弹窗，提供流畅体验
+                    this.showNewTask = false;
+                    const savedNewTask = { ...this.newTask };
+                    this.resetNewTask();
+
                     const response = await fetch('/api/tasks', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            ...this.newTask,
+                            ...savedNewTask,
                             urls: urls
                         })
                     });
@@ -209,10 +214,11 @@ function downloadApp() {
                         const result = await response.json();
                         debugLog('任务创建成功: ' + JSON.stringify(result));
                         this.showToast('任务创建成功');
-                        this.showNewTask = false;
-                        this.resetNewTask();
                         await this.refreshData();
                     } else {
+                        // 如果失败，重新打开弹窗或显示错误
+                        this.showNewTask = true;
+                        this.newTask = savedNewTask;
                         const error = await response.json();
                         debugLog('创建任务失败: ' + JSON.stringify(error));
                         this.showToast(error.detail || '创建任务失败', 'error');
