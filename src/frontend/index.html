@@ -145,8 +145,8 @@
                     <button @click="filter = 'waiting'" 
                             :class="{'bg-white dark:bg-gray-600 shadow': filter === 'waiting'}"
                             class="px-3 py-1 rounded-md text-sm transition">等待中</button>
-                    <button @click="filter = 'stopped'" 
-                            :class="{'bg-white dark:bg-gray-600 shadow': filter === 'stopped'}"
+                    <button @click="filter = 'complete'" 
+                            :class="{'bg-white dark:bg-gray-600 shadow': filter === 'complete'}"
                             class="px-3 py-1 rounded-md text-sm transition">已完成</button>
                 </div>
             </div>
@@ -200,14 +200,16 @@
                         
                         <div class="flex items-center space-x-2 mt-2 sm:mt-0">
                             <!-- 暂停按钮 -->
-                            <button :data-gid="task.gid"
+                            <button x-show="task.status === 'active' || task.status === 'paused'"
+                                    :data-gid="task.gid"
                                     @click="pauseTask($el.dataset.gid)"
                                     class="text-yellow-600 hover:text-yellow-800 dark:text-yellow-400 dark:hover:text-yellow-300"
-                                    title="暂停">
+                                  title="暂停">
                                 <i class="fas fa-pause-circle text-xl"></i>
                             </button>
                             <!-- 继续按钮 -->
-                            <button :data-gid="task.gid"
+                            <button x-show="task.status === 'paused'"
+                                    :data-gid="task.gid"
                                     @click="resumeTask($el.dataset.gid)"
                                     class="text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"
                                     title="继续">
@@ -281,9 +283,10 @@
                                 <div class="flex items-center">
                                     <button @click="newTask.connections = Math.max(1, newTask.connections - 1)" 
                                             class="px-2 py-1 bg-gray-200 dark:bg-gray-600 rounded-l">-</button>
-                                    <input x-model.number="newTask.connections" type="number" min="1" max="16"
-                                           class="w-full text-center px-2 py-1 border-y dark:bg-gray-800 dark:border-gray-600">
-                                    <button @click="newTask.connections = Math.min(16, newTask.connections + 1)" 
+                                    <input x-model.number="newTask.connections" type="number" min="1" max="8"
+                                           readonly
+                                           class="w-full text-center px-2 py-1 border-y dark:bg-gray-800 dark:border-gray-600 cursor-default">
+                                    <button @click="newTask.connections = Math.min(8, newTask.connections + 1)" 
                                             class="px-2 py-1 bg-gray-200 dark:bg-gray-600 rounded-r">+</button>
                                 </div>
                             </div>
@@ -292,9 +295,10 @@
                                 <div class="flex items-center">
                                     <button @click="newTask.splits = Math.max(1, newTask.splits - 1)" 
                                             class="px-2 py-1 bg-gray-200 dark:bg-gray-600 rounded-l">-</button>
-                                    <input x-model.number="newTask.splits" type="number" min="1" max="16"
-                                           class="w-full text-center px-2 py-1 border-y dark:bg-gray-800 dark:border-gray-600">
-                                    <button @click="newTask.splits = Math.min(16, newTask.splits + 1)" 
+                                    <input x-model.number="newTask.splits" type="number" min="1" max="8"
+                                           readonly
+                                           class="w-full text-center px-2 py-1 border-y dark:bg-gray-800 dark:border-gray-600 cursor-default">
+                                    <button @click="newTask.splits = Math.min(8, newTask.splits + 1)" 
                                             class="px-2 py-1 bg-gray-200 dark:bg-gray-600 rounded-r">+</button>
                                 </div>
                             </div>
