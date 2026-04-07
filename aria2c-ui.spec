@@ -1,12 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import sys
+import os
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 # 项目根目录
-project_root = Path(__file__).parent
+project_root = Path(os.path.abspath('.'))
 
 block_cipher = None
+
+# 收集 pkg_resources 及其所有依赖
+pkg_resources_datas, pkg_resources_binaries, pkg_resources_hiddenimports = collect_all('pkg_resources')
 
 # 分析依赖
 a = Analysis(
@@ -18,7 +23,7 @@ a = Analysis(
         ('src/frontend', 'src/frontend'),
         # aria2c 可执行文件（如果存在）
         ('aria2c/aria2c.exe', 'aria2c'),
-    ],
+    ] + pkg_resources_datas,
     hiddenimports=[
         'uvicorn.logging',
         'uvicorn.loops',
@@ -40,8 +45,8 @@ a = Analysis(
         'src.backend.aria2_client',
         'src.backend.aria2_process',
         'src.backend.server',
-    ],
-    hookspath=[],
+    ] + pkg_resources_hiddenimports,
+    hookspath=['.'],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
