@@ -113,3 +113,17 @@ python build.py onefile
 ## 许可证
 
 MIT License
+
+
+## 编译构建
+在编译构建前要安装好 Inno Setup
+下载并安装：[](https://jrsoftware.org/isdl.php)<https://jrsoftware.org/isdl.php> ，下载完默认安装就好了
+现在选取了 innosetup-6.7.1.exe 进行安装
+
+## 执行编译构建  
+conda activate fileopt
+
+python build.py installer
+
+python build.py clean      # 清理
+
