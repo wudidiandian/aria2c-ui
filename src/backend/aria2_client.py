@@ -67,8 +67,8 @@ class Aria2Client:
         # 对于查询类操作，进一步压缩超时和重试
         is_query = method in ["aria2.tellActive", "aria2.tellWaiting", "aria2.tellStopped", "aria2.getGlobalStat"]
         if is_query:
-            timeout = 2.0
-            retries = 0
+            timeout = 30.0
+            retries = 1
 
         client = await self.get_client()
         
@@ -100,8 +100,6 @@ class Aria2Client:
                     log_with_time(f"RPC 异常 ({method}): {e}")
                 return None
         
-        return None
-    
     async def add_task(self, task_create: DownloadTaskCreate) -> Optional[str]:
         """添加下载任务"""
         log_with_time(f"添加任务: urls={task_create.urls}, save_dir={task_create.save_dir}")
@@ -112,7 +110,7 @@ class Aria2Client:
             "dir": save_dir,
             "max-connection-per-server": str(task_create.connections),
             "split": str(task_create.splits),
-            "min-split-size": "1M",
+            "min-split-size": "10M",
         }
         
         if task_create.filename:
@@ -121,7 +119,7 @@ class Aria2Client:
         if task_create.max_speed:
             options["max-download-limit"] = self._parse_speed(task_create.max_speed)
         
-        result = await self._call("aria2.addUri", [task_create.urls, options], retries=1, timeout=5.0)
+        result = await self._call("aria2.addUri", [task_create.urls, options], retries=1, timeout=10.0)
         log_with_time(f"aria2.addUri 结果: {result}")
         return result
     

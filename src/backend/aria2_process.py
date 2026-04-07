@@ -65,7 +65,7 @@ class Aria2ProcessManager:
             "--log-level=debug",
             f"--max-concurrent-downloads={config_manager.config.max_concurrent_downloads}",
             "--max-connection-per-server=16",
-            "--min-split-size=1M",
+            "--min-split-size=10M",
             "--split=16",
             f"--dir={downloads_dir}",
             "--file-allocation=none",  # 改为 none，避免预分配问题
@@ -132,7 +132,7 @@ class Aria2ProcessManager:
             
             # 等待 RPC 服务启动
             log_with_time("等待 RPC 服务启动...")
-            if self._wait_for_rpc(timeout=15):
+            if self._wait_for_rpc(timeout=30):
                 log_with_time(f"aria2c 启动成功，PID: {self.process.pid}")
                 # # 注册退出时清理
                 # atexit.register(self.stop)
@@ -317,7 +317,7 @@ class Aria2ProcessManager:
                             "method": "aria2.getVersion",
                             "params": []
                         },
-                        timeout=20
+                        timeout=60
                     )
                     
                     if response.status_code == 200:

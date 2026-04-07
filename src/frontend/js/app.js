@@ -110,28 +110,39 @@ function downloadApp() {
                 }
             },
             
-            // 刷新数据
-            async refreshData() {
-                try {
-                    const tasksResponse = await fetch('/api/tasks');
-                    if (tasksResponse.ok) {
-                        const data = await tasksResponse.json();
-                        // 确保数据是数组
-                        this.tasks = Array.isArray(data) ? data : [];
-                        this._tasks = this.tasks;
-                    } else {
-                        // 如果请求失败，保持原有数据
-                        this.tasks = this._tasks;
-                    }
-                    
-                    const statsResponse = await fetch('/api/stats');
-                    if (statsResponse.ok) {
-                        this.stats = await statsResponse.json();
-                    }
-                } catch (error) {
-                    // 静默处理
-                }
-            },
+// 刷新数据
+async refreshData() {
+    try {
+        const tasksResponse = await fetch('/api/tasks');
+        if (tasksResponse.ok) {
+            const newData = await tasksResponse.json();
+            if (Array.isArray(newData)) {
+                // 策略：使用 Map 进行合并，保留旧任务的引用，防止 UI 闪烁
+                const taskMap = new Map();
+                // 先把旧任务放进去
+                this._tasks.forEach(t => taskMap.set(t.gid, t));
+                // 用新数据覆盖，这样可以更新状态，同时保留没变动的任务引用
+                newData.forEach(t => taskMap.set(t.gid, t));
+                
+                // 检查是否需要清理已经从后端删除的任务
+                const newIds = new Set(newData.map(t => t.gid));
+                const updatedTasks = Array.from(taskMap.values()).filter(t => newIds.has(t.gid));
+                
+                this.tasks = updatedTasks;
+                this._tasks = [...updatedTasks];
+            }
+        } else {
+            this.tasks = this._tasks;
+        }
+        
+        const statsResponse = await fetch('/api/stats');
+        if (statsResponse.ok) {
+            this.stats = await statsResponse.json();
+        }
+    } catch (error) {
+        debugLog('refreshData Error: ' + error);
+    }
+},
             
             // 加载配置
             async loadConfig() {
