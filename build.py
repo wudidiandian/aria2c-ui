@@ -50,21 +50,18 @@ def download_aria2c():
 def build():
     """构建可执行文件"""
     print("开始构建 Aria2c UI...")
-    
+
     # 检查 aria2c
     if not download_aria2c():
-        print("警告：aria2c.exe 不存在，打包后的程序可能无法正常工作")
-        response = input("是否继续构建？(y/n): ")
-        if response.lower() != 'y':
-            return
-    
+        print("警告：aria2c.exe 不存在，打包后的程序将无法启动下载引擎")
+
     # 清理
     clean_build()
-    
-    # 安装依赖
+
+    # 安装依赖（含 PyInstaller 等构建依赖）
     print("安装依赖...")
-    subprocess.run([sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt'], check=True)
-    
+    subprocess.run([sys.executable, '-m', 'pip', 'install', '-r', 'requirements-dev.txt'], check=True)
+
     # 使用 PyInstaller 构建
     print("构建可执行文件...")
     subprocess.run([
@@ -74,20 +71,14 @@ def build():
         '--noconfirm'
     ], check=True)
     
-    # 复制额外文件
+    # 验证关键资源（aria2c.exe 已由 spec datas 打包进 _internal/aria2c）
     dist_dir = Path('dist/Aria2cUI')
     if dist_dir.exists():
-        # 确保 aria2c 目录存在
-        aria2c_dist = dist_dir / 'aria2c'
-        aria2c_dist.mkdir(exist_ok=True)
-        
-        # 如果 aria2c.exe 存在，复制它
-        if Path('aria2c/aria2c.exe').exists():
-            shutil.copy('aria2c/aria2c.exe', aria2c_dist / 'aria2c.exe')
-            print("已复制 aria2c.exe")
-        
+        exe_file = dist_dir / 'Aria2cUI.exe'
+        engine = dist_dir / '_internal' / 'aria2c' / 'aria2c.exe'
         print(f"\n构建完成！输出目录: {dist_dir.absolute()}")
-        print(f"可执行文件: {dist_dir / 'Aria2cUI.exe'}")
+        print(f"可执行文件: {exe_file} ({exe_file.stat().st_size / 1 / 1024 / 1024:.1f} MB)")
+        print(f"下载引擎: {'OK' if engine.exists() else '缺失！'}")
     else:
         print("构建失败，未找到输出目录")
 
@@ -95,42 +86,54 @@ def build():
 def build_onefile():
     """构建单文件版本"""
     print("构建单文件版本...")
-    
+
     # 检查 aria2c
     if not Path('aria2c/aria2c.exe').exists():
         print("警告：aria2c.exe 不存在")
-    
+
     # 清理
     clean_build()
-    
+
     # 构建单文件
+    # 注意：--paths . 必须保留，src.backend.* 包需要从项目根解析
     cmd = [
         sys.executable, '-m', 'PyInstaller',
         '--onefile',
         '--windowed',
         '--name', 'Aria2cUI',
+        '--paths', '.',
         '--add-data', 'src/frontend;src/frontend',
         '--add-data', 'aria2c/aria2c.exe;aria2c',
-        '--hidden-import', 'uvicorn.logging',
-        '--hidden-import', 'uvicorn.loops.auto',
-        '--hidden-import', 'uvicorn.protocols.http.auto',
-        '--hidden-import', 'fastapi',
         '--hidden-import', 'pydantic',
         '--hidden-import', 'requests',
         '--hidden-import', 'psutil',
         '--hidden-import', 'webview',
-        'src/backend/main.py'
+        '--hidden-import', 'src.backend.models',
+        '--hidden-import', 'src.backend.config',
+        '--hidden-import', 'src.backend.history',
+        '--hidden-import', 'src.backend.aria2_client',
+        '--hidden-import', 'src.backend.aria2_process',
     ]
-    
+
+    icon = Path('assets/icon.ico')
+    if icon.exists():
+        cmd += ['--icon', str(icon)]
+
+    cmd.append('src/backend/main.py')
+
     subprocess.run(cmd, check=True)
-    
-    print("\n单文件版本构建完成！")
-    print(f"输出: {Path('dist/Aria2cUI.exe').absolute()}")
+
+    out = Path('dist/Aria2cUI.exe')
+    if out.exists():
+        print("\n单文件版本构建完成！")
+        print(f"输出: {out.absolute()} ({out.stat().st_size / 1 / 1024 / 1024:.1f} MB)")
+    else:
+        print("构建失败，未找到输出文件")
 
 
 def run_dev():
-    """运行开发服务器"""
-    print("启动开发服务器...")
+    """开发模式运行（直接启动 pywebview 窗口）"""
+    print("启动开发模式...")
     os.environ['PYTHONPATH'] = str(Path(__file__).parent)
     subprocess.run([sys.executable, 'src/backend/main.py'])
 
