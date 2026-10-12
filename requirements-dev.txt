@@ -1,0 +1,4 @@
+# 构建依赖（开发/打包环境安装）
+-r requirements.txt
+pyinstaller>=6.10
+pillow>=10.2

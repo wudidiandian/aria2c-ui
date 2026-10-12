@@ -2,7 +2,7 @@
 ; 使用 Inno Setup 编译
 
 #define MyAppName "Aria2c UI"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "wudidiandian"
 #define MyAppURL "https://github.com/wudidiandian/aria2c-ui"
 #define MyAppExeName "Aria2cUI.exe"
@@ -58,12 +58,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 ; 安装完成后可选运行
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
-[UninstallDelete]
-; 卸载时删除的文件和目录
-Type: filesandordirs; Name: "{app}\downloads"
-Type: filesandordirs; Name: "{app}\aria2.session"
-Type: filesandordirs; Name: "{app}\aria2c.log"
-Type: filesandordirs; Name: "{app}\config.json"
+; 用户数据（配置/会话/日志）保存在 %APPDATA%\Aria2cUI，卸载时保留以避免误删下载记录
 
 [Code]
 // 检查是否已安装

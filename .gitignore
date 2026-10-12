@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# PyInstaller
+build/
+dist/
+*.spec.bak
+
+# 运行时产物
+aria2.session
+aria2c.log
+logs/
+downloads/
+
+# 本机配置
+config.json
+
+# IDE
+.vscode/
+.idea/
