@@ -38,3 +38,24 @@ python -m venv .venv
 3. 打包流程 —— PyInstaller onedir + 平台图标格式
 
 建议先开 Issue 讨论方案再动手。
+
+## 发布新版本
+
+CI 已配置自动发布（[.github/workflows/release.yml](.github/workflows/release.yml)），
+维护者只需两步：
+
+```bash
+# 1. 更新 CHANGELOG.md（新增版本段落）与 src/backend/main.py 的 APP_VERSION
+# 2. 打标签并推送 —— 之后 GitHub Actions 自动打包并创建 Release
+git tag v1.x.0
+git push origin v1.x.0
+```
+
+流程：Windows runner 上安装依赖 → `build.py onefile` 打包 →
+从 CHANGELOG.md 提取对应版本说明作为 Release 正文 → 上传 `Aria2cUI.exe`。
+构建进度见仓库 Actions 标签页；完成后 Release 页面即出现带附件的版本。
+
+## 版本号约定
+
+- 版本来源：`src/backend/main.py` 的 `APP_VERSION`，需与 git tag 保持一致
+- CHANGELOG.md 中新增 `## [x.y.z] - 日期` 段落，CI 会自动提取为 Release 说明

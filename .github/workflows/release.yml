@@ -1,0 +1,65 @@
+name: Release
+
+# 推送 v* 标签时自动：安装依赖 → PyInstaller 打包 → 创建 GitHub Release 并上传 exe
+# 用法：
+#   git tag v1.2.0
+#   git push origin v1.2.0
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # 允许创建 Release
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Build onefile exe
+        run: python build.py onefile
+
+      - name: Verify artifact
+        shell: pwsh
+        run: |
+          if (-not (Test-Path dist/Aria2cUI.exe)) { throw "构建产物不存在" }
+          "Aria2cUI.exe 大小: $([math]::Round((Get-Item dist/Aria2cUI.exe).Length/1MB,1)) MB"
+
+      # 从 CHANGELOG.md 提取当前 tag 对应版本的说明作为 Release 正文
+      - name: Extract release notes from CHANGELOG
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $ver = $tag.Substring(1)
+          $content = Get-Content CHANGELOG.md -Raw
+          $escaped = [regex]::Escape($ver)
+          if ($content -match "(?s)## \[$escaped\].*?(?=\r?\n## \[|$)") {
+            $section = $Matches[0] -replace "^## \[[^\]]+\][^\r\n]*\r?\n?", ""
+            Set-Content -Path release_notes.md -Value $section -Encoding utf8
+          } else {
+            Set-Content -Path release_notes.md -Value "Release $tag" -Encoding utf8
+          }
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "${{ github.ref_name }}" dist/Aria2cUI.exe
+          --title "${{ github.ref_name }}"
+          --notes-file release_notes.md
+          --verify-tag

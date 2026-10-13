@@ -40,3 +40,19 @@ Welcome! Platform-specific pieces are currently:
 3. Packaging — PyInstaller onedir plus platform icon formats
 
 Please open an issue to discuss the design before coding.
+
+## Releasing a new version
+
+CI auto-publishes releases (see [.github/workflows/release.yml](.github/workflows/release.yml)).
+As a maintainer, just push a tag:
+
+```bash
+# 1. Update CHANGELOG.md and APP_VERSION in src/backend/main.py
+# 2. Tag and push — Actions builds and publishes the Release automatically
+git tag v1.x.0
+git push origin v1.x.0
+```
+
+The workflow builds the onefile exe on a Windows runner, extracts the matching
+section from CHANGELOG.md as release notes, and uploads `Aria2cUI.exe` to a
+GitHub Release.
