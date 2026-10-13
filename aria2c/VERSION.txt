@@ -1,0 +1,24 @@
+aria2 版本信息
+==============
+
+版本:       1.37.0 (官方 win-64bit-build1)
+来源:       https://github.com/aria2/aria2/releases/tag/release-1.37.0
+许可证:     GPL-2.0-or-later（含 OpenSSL 链接例外）
+源码:       https://github.com/aria2/aria2
+许可证全文: https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
+
+本目录中的 aria2c.exe 为未修改的官方构建二进制文件。
+Aria2c UI 通过 JSON-RPC 与其独立进程通信，不修改、不链接其源码。
+详细的第三方组件许可信息见仓库根目录 THIRD-PARTY-LICENSES.md。
+
+aria2 version info
+==================
+
+Version:    1.37.0 (official win-64bit-build1)
+Source:     https://github.com/aria2/aria2/releases/tag/release-1.37.0
+License:    GPL-2.0-or-later (with OpenSSL linking exception)
+Homepage:   https://github.com/aria2/aria2
+
+The aria2c.exe in this directory is the unmodified official binary.
+Aria2c UI communicates with it as a separate process via JSON-RPC.
+See THIRD-PARTY-LICENSES.md at the repository root for details.
