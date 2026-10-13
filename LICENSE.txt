@@ -1,24 +1,41 @@
-Aria2c UI 许可证
+MIT License
 
-版权所有 (c) 2024 wudidiandian
+Copyright (c) 2024-2026 wudidiandian
 
-本软件是免费开源软件，基于 MIT 许可证发布。
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-允许任何人免费获得本软件及其相关文档文件（以下简称"软件"）的副本，
-可以不受限制地处理本软件，包括但不限于使用、复制、修改、合并、发布、
-分发、再许可和/或销售软件副本的权利。
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-上述版权声明和本许可声明应包含在本软件的所有副本或实质性部分中。
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
-本软件按"原样"提供，不提供任何明示或暗示的担保，包括但不限于对适销性、
-特定用途适用性和非侵权性的担保。在任何情况下，作者或版权持有人均不对
-因本软件或本软件的使用或其他交易而产生的任何索赔、损害或其他责任负责，
-无论是合同诉讼、侵权行为还是其他行为。
+--------------------------------------------------------------------------
 
----
+关于第三方组件的补充说明：
 
-第三方组件：
+本仓库源码以 MIT 许可证发布。但本项目以二进制形式捆绑分发了 aria2
+（GPL-2.0-or-later，含 OpenSSL 链接例外）。分发包（exe/安装包）因此
+受 GPL 约束的部分以 GPL 条款提供，aria2 的源码可从其官方仓库获取：
 
-- aria2c: GPL v2 许可证 (https://github.com/aria2/aria2)
-- Python: PSF 许可证 (https://www.python.org/psf/license/)
-- 其他依赖库: 各自的原许可证
+    https://github.com/aria2/aria2
+
+本项目自身代码不链接、不修改 aria2 源码，仅通过 JSON-RPC 与其独立
+进程通信（普通聚合分发）。各第三方组件的完整许可证信息见
+THIRD-PARTY-LICENSES.md。
+
+中文摘要（仅供参考，以英文原文为准）：
+
+本软件按“原样”提供，不提供任何明示或暗示的担保。允许任何人免费使用、
+复制、修改、合并、发布、分发、再许可和/或销售本软件副本，但须在所有
+副本或实质性部分中保留上述版权声明与本许可声明。

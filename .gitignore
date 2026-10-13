@@ -9,6 +9,8 @@ venv/
 build/
 dist/
 *.spec.bak
+# onefile 构建自动生成的 spec（目录模式的手写 spec aria2c-ui.spec 保留在仓库）
+/Aria2cUI.spec
 
 # 运行时产物
 aria2.session

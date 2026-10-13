@@ -5,8 +5,8 @@
 ## 环境要求
 
 - Windows 10/11
-- Python 3.8+
-- Inno Setup 6（用于创建安装包）
+- Python 3.10+
+- Inno Setup 6（用于创建安装包，仅 `installer` 命令需要）
 
 ## 快速开始
 
@@ -22,7 +22,9 @@ pip install -r requirements.txt
 python create_icon.py
 ```
 
-这会生成 `assets/icon.ico` 图标文件。
+默认生成程序内置图标。如需自定义：准备一张 1024x1024 透明背景 PNG 放到
+`assets/icon-source.png`，再次运行会自动从高清源图生成全套尺寸（16-256）的
+`assets/icon.ico`。
 
 ### 3. 构建可执行文件
 
