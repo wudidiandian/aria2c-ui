@@ -10,6 +10,39 @@ import shutil
 import subprocess
 from pathlib import Path
 
+_ROOT = Path(__file__).parent
+
+
+def _venv_python():
+    py = _ROOT / '.venv' / 'Scripts' / 'python.exe'
+    return str(py) if py.exists() else None
+
+
+def build_python():
+    """找到带 PyInstaller 的解释器：当前 venv 优先，其次项目 .venv，最后回退当前解释器。
+
+    解决直接用系统 python（如 Anaconda）运行 build.py 时 PyInstaller 缺失的问题。
+    """
+    candidates = []
+    if sys.prefix != getattr(sys, 'base_prefix', sys.prefix):
+        candidates.append(sys.executable)  # 已在某个虚拟环境中
+    venv = _venv_python()
+    if venv:
+        candidates.append(venv)
+    candidates.append(sys.executable)
+
+    for py in candidates:
+        try:
+            subprocess.run([py, '-m', 'PyInstaller', '--version'],
+                           capture_output=True, check=True)
+            return py
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            continue
+
+    print("错误：未找到 PyInstaller。请先安装构建依赖：")
+    print("  .venv\\Scripts\\python -m pip install -r requirements-dev.txt")
+    sys.exit(1)
+
 
 def clean_build():
     """清理构建目录"""
@@ -60,12 +93,12 @@ def build():
 
     # 安装依赖（含 PyInstaller 等构建依赖）
     print("安装依赖...")
-    subprocess.run([sys.executable, '-m', 'pip', 'install', '-r', 'requirements-dev.txt'], check=True)
+    subprocess.run([build_python(), '-m', 'pip', 'install', '-r', 'requirements-dev.txt'], check=True)
 
     # 使用 PyInstaller 构建
     print("构建可执行文件...")
     subprocess.run([
-        sys.executable, '-m', 'PyInstaller',
+        build_python(), '-m', 'PyInstaller',
         'aria2c-ui.spec',
         '--clean',
         '--noconfirm'
@@ -97,7 +130,7 @@ def build_onefile():
     # 构建单文件
     # 注意：--paths . 必须保留，src.backend.* 包需要从项目根解析
     cmd = [
-        sys.executable, '-m', 'PyInstaller',
+        build_python(), '-m', 'PyInstaller',
         '--onefile',
         '--windowed',
         '--name', 'Aria2cUI',
@@ -134,8 +167,8 @@ def build_onefile():
 def run_dev():
     """开发模式运行（直接启动 pywebview 窗口）"""
     print("启动开发模式...")
-    os.environ['PYTHONPATH'] = str(Path(__file__).parent)
-    subprocess.run([sys.executable, 'src/backend/main.py'])
+    os.environ['PYTHONPATH'] = str(_ROOT)
+    subprocess.run([_venv_python() or sys.executable, 'src/backend/main.py'])
 
 
 def build_installer():
@@ -212,59 +245,8 @@ def build_installer():
 
 
 def create_default_icon():
-    """创建默认图标（使用 Python 的 PIL 库）"""
-    try:
-        from PIL import Image, ImageDraw
-        
-        # 创建 256x256 的图标
-        size = 256
-        img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-        
-        # 绘制一个简单的下载图标（蓝色圆形背景 + 白色向下箭头）
-        # 背景圆
-        margin = 10
-        draw.ellipse([margin, margin, size-margin, size-margin], fill='#3b82f6')
-        
-        # 白色向下箭头
-        arrow_width = 80
-        arrow_height = 100
-        head_height = 40
-        center_x = size // 2
-        center_y = size // 2
-        
-        # 箭头杆
-        shaft_left = center_x - arrow_width // 4
-        shaft_right = center_x + arrow_width // 4
-        shaft_top = center_y - arrow_height // 2
-        shaft_bottom = center_y + arrow_height // 2 - head_height
-        
-        draw.rectangle([shaft_left, shaft_top, shaft_right, shaft_bottom], fill='white')
-        
-        # 箭头头部（三角形）
-        head_top = shaft_bottom
-        head_bottom = center_y + arrow_height // 2
-        draw.polygon([
-            (center_x - arrow_width // 2, head_top),
-            (center_x + arrow_width // 2, head_top),
-            (center_x, head_bottom)
-        ], fill='white')
-        
-        # 保存为 ICO 文件（多种尺寸）
-        icon_sizes = [16, 32, 48, 64, 128, 256]
-        icons = []
-        for icon_size in icon_sizes:
-            resized = img.resize((icon_size, icon_size), Image.Resampling.LANCZOS)
-            icons.append(resized)
-        
-        icons[0].save('assets/icon.ico', format='ICO', sizes=[(s, s) for s in icon_sizes])
-        print("已创建默认图标: assets/icon.ico")
-        
-    except ImportError:
-        print("警告：未安装 PIL 库，无法创建默认图标")
-        print("请运行: pip install Pillow")
-        # 创建一个空文件作为占位符
-        Path('assets/icon.ico').touch()
+    """图标生成统一走 create_icon.py（支持 assets/icon-source.png 高清源图）"""
+    subprocess.run([build_python(), 'create_icon.py'], check=False)
 
 
 if __name__ == '__main__':

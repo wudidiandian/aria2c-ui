@@ -218,10 +218,13 @@ class Aria2Client:
         self.call("aria2.unpauseAll")
 
     def remove_task(self, gid: str) -> None:
-        """删除任务：活动/等待中用 remove，已停止的用 removeDownloadResult"""
+        """删除任务：remove 处理活动/等待任务，removeDownloadResult 清除停止列表中的残留。
+
+        两步都要做：remove 成功后任务结果仍留在停止列表里（removed 状态），
+        必须再调 removeDownloadResult 才能彻底清除。
+        """
         try:
             self.call("aria2.remove", [gid])
-            return
         except Aria2Error:
             pass
         try:

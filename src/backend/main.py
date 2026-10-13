@@ -43,6 +43,17 @@ history_store = HistoryStore(config_manager.data_dir / "history.json")
 def collect_tasks():
     """合并 aria2 实时任务与本地历史（complete/error），并同步历史落盘"""
     tasks = aria2_client.get_all_tasks()
+
+    # 用户已删除的任务（墓碑）：aria2 会话恢复出来的残留，静默清除且不再展示
+    deleted = history_store.deleted_gids()
+    if deleted:
+        for t in [t for t in tasks if t.gid in deleted]:
+            try:
+                aria2_client.remove_task(t.gid)
+            except Aria2Error:
+                pass
+        tasks = [t for t in tasks if t.gid not in deleted]
+
     history_store.record(tasks)
     live_gids = {t.gid for t in tasks}
     history_tasks = [
