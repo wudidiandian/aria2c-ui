@@ -24,3 +24,6 @@ config.json
 # IDE
 .vscode/
 .idea/
+
+# AI 会话历史（本地文档，不入库）
+.ai/

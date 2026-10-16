@@ -80,6 +80,14 @@
         <button class="icon-btn" data-close="newTaskModal">✕</button>
       </div>
       <div class="form">
+        <div class="torrent-row">
+          <button class="btn ghost" id="btnChooseTorrent">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+            添加种子文件（.torrent）
+          </button>
+          <span class="torrent-chip" id="torrentChip" hidden></span>
+        </div>
+        <div class="divider"><span>或粘贴链接</span></div>
         <label>下载链接（每行一个，每个链接创建一个独立任务）</label>
         <textarea id="taskUrls" rows="5" placeholder="每行一个链接，每行将创建为独立任务&#10;https://example.com/file.zip&#10;magnet:?xt=urn:btih:...（支持磁力/BT）"></textarea>
 
@@ -160,6 +168,52 @@
             <label>全局限速（如 10M，留空不限）</label>
             <input type="text" id="cfgLimit" placeholder="不限速">
           </div>
+        </div>
+        <div class="section-title">BT / 做种</div>
+        <div class="field">
+          <label>分享模式（下载完成后如何回馈社区）</label>
+          <div class="preset-group" id="seedPresetGroup">
+            <div class="preset-card" data-preset="none" tabindex="0">
+              <div class="preset-head"><span class="preset-name">不分享资源</span><span class="preset-tag off">几乎不上传</span></div>
+              <div class="preset-desc">下载完成即停止上传。不回馈社区：冷门资源可能因此无人供给，部分站点会限制这类"只下不上"的用户。</div>
+            </div>
+            <div class="preset-card" data-preset="standard" tabindex="0">
+              <div class="preset-head"><span class="preset-name">标准分享资源</span><span class="preset-tag rec">推荐</span></div>
+              <div class="preset-desc">上传量达到下载量的 100% 后自动停止（分享率 1.0）。下载多少回馈多少，是维持社区资源健康的基本线。</div>
+            </div>
+            <div class="preset-card" data-preset="deep" tabindex="0">
+              <div class="preset-head"><span class="preset-name">深度分享资源</span><span class="preset-tag max">回馈最多</span></div>
+              <div class="preset-desc">不限量持续做种，直到你删除任务。冷门资源因此保活，私有 PT 站点最欢迎这种用户。</div>
+            </div>
+          </div>
+        </div>
+        <details class="adv-seed" id="seedAdv">
+          <summary>高级：手动指定做种比率与时长</summary>
+          <div class="field-row">
+            <div class="field">
+              <label>做种比率（0 = 不限）</label>
+              <input type="number" id="cfgSeedRatio" min="0" max="100" step="0.1" placeholder="1.0">
+            </div>
+            <div class="field">
+              <label>做种时长（分钟，0 = 按比率）</label>
+              <input type="number" id="cfgSeedTime" min="0" max="10080" placeholder="0">
+            </div>
+          </div>
+          <p class="hint">比率 = 上传量 ÷ 下载量；两者任一先到达即停止做种。一般无需修改。</p>
+        </details>
+        <div class="field-row">
+          <div class="field">
+            <label>BT 监听端口（如 6881-6999，重启生效）</label>
+            <input type="text" id="cfgBtPort" placeholder="6881-6999">
+          </div>
+          <div class="field">
+            <label>DHT（公网节点发现）</label>
+            <label class="check-row"><input type="checkbox" id="cfgDht"> 启用 DHT（关闭后仅依赖 tracker）</label>
+          </div>
+        </div>
+        <div class="field">
+          <label>附加 Tracker（每行一个，可留空）</label>
+          <textarea id="cfgTrackers" rows="3" placeholder="udp://tracker.example.com:6969/announce"></textarea>
         </div>
         <p class="hint">提示：RPC 端口等高级配置请编辑 %APPDATA%\Aria2cUI\config.json（重启后生效）</p>
       </div>

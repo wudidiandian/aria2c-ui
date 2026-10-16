@@ -1,5 +1,6 @@
 import re
 import time
+import base64
 import threading
 from typing import List, Optional, Dict, Any
 from urllib.parse import urlsplit, parse_qs, unquote
@@ -177,6 +178,20 @@ class Aria2Client:
             return f"BT 磁力任务 ({match.group(1)[:12]})"
         return "BT 磁力任务"
 
+    def add_torrent(self, torrent_path: str, save_dir: Optional[str] = None) -> str:
+        """添加 .torrent 种子文件任务，返回 gid。
+
+        种子内即使包含多个文件，aria2 也按一个任务处理（文件保存在
+        save_dir/<种子名>/ 下）。BT 任务不支持 out 参数重命名。
+        """
+        cfg = config_manager.config
+        with open(torrent_path, "rb") as f:
+            torrent_b64 = base64.b64encode(f.read()).decode("ascii")
+        # addTorrent 参数顺序：torrent, uris(文件 Web 种子，留空), options
+        options = {"dir": save_dir or cfg.default_download_dir}
+        gid = self.call("aria2.addTorrent", [torrent_b64, [], options])
+        return gid
+
     @staticmethod
     def _parse_speed(speed: str) -> str:
         speed = speed.upper().strip()
@@ -222,18 +237,25 @@ class Aria2Client:
 
         两步都要做：remove 成功后任务结果仍留在停止列表里（removed 状态），
         必须再调 removeDownloadResult 才能彻底清除。
+        remove 是异步落账：刚 remove 的任务可能短暂不在停止列表中，
+        因此 removeDownloadResult 失败时短暂重试。
         """
         try:
             self.call("aria2.remove", [gid])
         except Aria2Error:
             pass
-        try:
-            self.call("aria2.removeDownloadResult", [gid])
-        except Aria2Error as e:
-            # 任务已经不存在时视为删除成功（重复点击场景）
-            if self._benign(str(e), "is not found"):
+        last_err: Optional[Aria2Error] = None
+        for _ in range(5):
+            try:
+                self.call("aria2.removeDownloadResult", [gid])
                 return
-            raise
+            except Aria2Error as e:
+                if self._benign(str(e), "is not found"):
+                    return
+                last_err = e
+                time.sleep(0.3)
+        if last_err:
+            raise last_err
 
     def shutdown(self) -> bool:
         """优雅关闭 aria2c（触发会话保存）"""
@@ -306,7 +328,6 @@ class Aria2Client:
         # 此时用创建时的磁力名称提示兜底；完成后用 bittorrent.info.name
         bittorrent = data.get("bittorrent") or {}
         bt_name = bittorrent.get("info", {}).get("name")
-
         # 磁力任务在元数据获取完成前没有 path/uris，用创建时的名称提示兜底
         gid = data.get("gid", "")
         if not urls and gid in self._name_hints:
@@ -325,6 +346,11 @@ class Aria2Client:
         # 停止任务与 BT 任务无意义；tellStatus 的 options 不回传 split 配置）
         actual_connections = int(data.get("connections", 0)) or None
 
+        # BT 专属字段：做种人数 / 文件数 / 上传速度 / 已做种时长
+        num_seeders = int(data.get("numSeeders", 0)) or None
+        seeding_time = int(data.get("seedingTime", 0)) or None
+        upload_speed = int(data.get("uploadSpeed", 0))
+
         return DownloadTask(
             gid=data.get("gid", ""),
             urls=urls,
@@ -338,6 +364,10 @@ class Aria2Client:
             progress=round(progress, 2),
             is_bittorrent=bool(bittorrent),
             error_message=data.get("errorMessage") if status == TaskStatus.ERROR else None,
+            num_seeders=num_seeders,
+            num_files=len(files) if bittorrent and files else None,
+            upload_speed=upload_speed,
+            seeding_time=seeding_time,
         )
 
 

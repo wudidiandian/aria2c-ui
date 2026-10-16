@@ -99,6 +99,11 @@ class ConfigManager:
             "default_splits": c.default_splits,
             "max_concurrent_downloads": c.max_concurrent_downloads,
             "max_overall_download_limit": c.max_overall_download_limit,
+            "bt_seed_ratio": c.bt_seed_ratio,
+            "bt_seed_time": c.bt_seed_time,
+            "bt_listen_port": c.bt_listen_port,
+            "bt_enable_dht": c.bt_enable_dht,
+            "bt_trackers": c.bt_trackers,
         }
 
     # ---------- 路径 ----------

@@ -193,7 +193,21 @@ class Aria2ProcessManager:
             "--summary-interval=0",
             "--console-log-level=warn",
             "--bt-stop-timeout=0",
+            # BT / 做种
+            "--bt-save-metadata=true",           # 磁力任务自动保存 .torrent 元数据
+            "--follow-torrent=mem",
+            f"--listen-port={cfg.bt_listen_port}",
+            f"--enable-dht={'true' if cfg.bt_enable_dht else 'false'}",
+            f"--seed-ratio={cfg.bt_seed_ratio}",
+            f"--seed-time={cfg.bt_seed_time}",
         ]
+        if cfg.bt_trackers:
+            # 每行一个 tracker，aria2 以逗号分隔接收
+            trackers = ",".join(
+                t.strip() for t in cfg.bt_trackers.splitlines() if t.strip()
+            )
+            if trackers:
+                cmd.append(f"--bt-tracker={trackers}")
         if cfg.max_overall_download_limit:
             cmd.append(f"--max-overall-download-limit={cfg.max_overall_download_limit}")
         if cfg.aria2_rpc_secret:

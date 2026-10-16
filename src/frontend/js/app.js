@@ -43,6 +43,7 @@ const state = {
   aria2Ok: false,
   aria2Error: null,
   appVersion: '',
+  torrentFile: null,   // 新建任务弹窗中已选择的 .torrent 文件路径
 };
 
 const STATUS_TEXT = {
@@ -178,9 +179,7 @@ function updateCard(task) {
   refs.size.textContent = `${fmtBytes(task.completed_length)} / ${fmtBytes(task.total_length)}`;
   refs.speed.textContent = task.status === 'active' ? fmtSpeed(task.download_speed) : '';
   refs.speed.hidden = task.status !== 'active';
-  refs.conn.textContent = task.is_bittorrent
-    ? 'BitTorrent · BT'
-    : (task.connections ? `连接 ${task.connections}` : '');
+  refs.conn.textContent = btMetaText(task);
   refs.err.textContent = task.error_message || '';
   refs.err.hidden = !task.error_message;
 
@@ -188,6 +187,32 @@ function updateCard(task) {
   refs.pause.hidden = task.status !== 'active';
   refs.resume.hidden = task.status !== 'paused' && task.status !== 'waiting';
   refs.folder.hidden = !task.save_dir;
+}
+
+/* BT 任务元信息：做种中 / 做种人数 / 分享率 */
+function btMetaText(task) {
+  if (!task.is_bittorrent) {
+    return task.connections ? `连接 ${task.connections}` : '';
+  }
+  // 元数据获取中：总大小未知
+  if (!task.total_length && task.status === 'active') {
+    return 'BT · 获取元数据中…';
+  }
+  const parts = [];
+  const done = task.status === 'complete' || task.progress >= 100;
+  if (done && task.status === 'active') {
+    parts.push(task.upload_speed > 0 ? `做种中 ↑ ${fmtSpeed(task.upload_speed)}` : '做种中（等待 Peer）');
+  }
+  if (task.num_seeders != null && task.status === 'active') {
+    parts.push(`做种 ${task.num_seeders}`);
+  }
+  if (done && task.total_length > 0) {
+    parts.push(`分享率 ${(task.completed_length / task.total_length).toFixed(2)}`);
+  }
+  if (task.num_files != null && task.num_files > 1) {
+    parts.push(`${task.num_files} 个文件`);
+  }
+  return parts.join(' · ');
 }
 
 function render() {
@@ -287,6 +312,7 @@ document.querySelectorAll('.modal-mask').forEach((mask) => {
 /* ---------- 新建任务 ---------- */
 
 function openNewTask() {
+  setTorrentChip(null); // 清除上次的种子文件选择
   $('#taskUrls').value = '';
   $('#taskSaveDir').value = state.config?.default_download_dir || '';
   $('#taskConnections').value = state.config?.default_connections ?? 16;
@@ -297,10 +323,49 @@ function openNewTask() {
   $('#taskUrls').focus();
 }
 
+async function chooseTorrent() {
+  try {
+    const path = await callApi('select_torrent_file');
+    setTorrentChip(path || null);
+  } catch (e) {
+    toast(cleanError(e), 'error');
+  }
+}
+
+function setTorrentChip(path) {
+  state.torrentFile = path;
+  const chip = $('#torrentChip');
+  if (path) {
+    const name = path.split(/[\\/]/).pop();
+    chip.textContent = `✕ ${name}`;
+    chip.title = `${path}\n（点击取消选择）`;
+    chip.hidden = false;
+    // 种子任务不需要连接数/分片数等 HTTP 专属项
+    $('#taskUrls').placeholder = '已选择种子文件，链接输入框将被忽略';
+  } else {
+    chip.hidden = true;
+    chip.textContent = '';
+    $('#taskUrls').placeholder =
+      '每行一个链接，每行将创建为独立任务\nhttps://example.com/file.zip\nmagnet:?xt=urn:btih:...（支持磁力/BT）';
+  }
+}
+
 async function submitTask() {
+  // 种子文件优先：选择了 .torrent 则忽略链接输入
+  if (state.torrentFile) {
+    try {
+      await callWithToast('create_torrent_task', {
+        path: state.torrentFile,
+        save_dir: $('#taskSaveDir').value || null,
+      });
+      closeModal('newTaskModal');
+    } catch (_) { /* 错误已提示 */ }
+    return;
+  }
+
   const urlsText = $('#taskUrls').value.trim();
   const urls = urlsText.split('\n').map(u => u.trim()).filter(Boolean);
-  if (urls.length === 0) { toast('请至少输入一个下载链接', 'error'); return; }
+  if (urls.length === 0) { toast('请至少输入一个下载链接，或选择种子文件', 'error'); return; }
 
   const payload = {
     urls,
@@ -327,6 +392,41 @@ function clampInt(v, min, max, dflt) {
 
 /* ---------- 设置 ---------- */
 
+// 三种做种分享模式 → aria2 启动参数（--seed-ratio / --seed-time，任一先到即停）
+const SEED_PRESETS = {
+  none:     { ratio: 0.01, time: 1 },  // 下载完成后至多 1 分钟内停止上传
+  standard: { ratio: 1.0,  time: 0 },  // 上传到下载量的 100% 后停止
+  deep:     { ratio: 0,    time: 0 },  // 不限量永久做种，直到删除任务
+};
+
+function detectSeedPreset(ratio, time) {
+  for (const [key, p] of Object.entries(SEED_PRESETS)) {
+    if (Math.abs(p.ratio - ratio) < 1e-9 && p.time === time) return key;
+  }
+  return null; // 自定义
+}
+
+function setSeedPresetUI(preset) {
+  document.querySelectorAll('#seedPresetGroup .preset-card').forEach((card) => {
+    card.classList.toggle('active', card.dataset.preset === preset);
+  });
+  $('#seedAdv').classList.toggle('is-custom', preset === null);
+}
+
+function applySeedPreset(key) {
+  const p = SEED_PRESETS[key];
+  if (!p) return;
+  $('#cfgSeedRatio').value = p.ratio;
+  $('#cfgSeedTime').value = p.time;
+  setSeedPresetUI(key);
+}
+
+function syncPresetFromInputs() {
+  const ratio = clampFloat($('#cfgSeedRatio').value, 0, 100, 1);
+  const time = parseInt($('#cfgSeedTime').value, 10) || 0;
+  setSeedPresetUI(detectSeedPreset(ratio, time));
+}
+
 function openSettings() {
   const c = state.config || {};
   $('#cfgDownloadDir').value = c.default_download_dir || '';
@@ -334,6 +434,15 @@ function openSettings() {
   $('#cfgSplits').value = c.default_splits ?? 16;
   $('#cfgConcurrent').value = c.max_concurrent_downloads ?? 5;
   $('#cfgLimit').value = c.max_overall_download_limit || '';
+  // BT / 做种：按比率/时长反推分享模式
+  const ratio = c.bt_seed_ratio ?? 1;
+  const time = c.bt_seed_time ?? 0;
+  $('#cfgSeedRatio').value = ratio;
+  $('#cfgSeedTime').value = time;
+  setSeedPresetUI(detectSeedPreset(ratio, time));
+  $('#cfgBtPort').value = c.bt_listen_port || '6881-6999';
+  $('#cfgDht').checked = c.bt_enable_dht !== false;
+  $('#cfgTrackers').value = c.bt_trackers || '';
   openModal('settingsModal');
 }
 
@@ -354,9 +463,20 @@ async function saveConfig() {
       default_splits: clampInt($('#cfgSplits').value, 1, 16, 16),
       max_concurrent_downloads: clampInt($('#cfgConcurrent').value, 1, 20, 5),
       max_overall_download_limit: $('#cfgLimit').value.trim() || null,
+      bt_seed_ratio: clampFloat($('#cfgSeedRatio').value, 0, 100, 1),
+      bt_seed_time: clampInt($('#cfgSeedTime').value, 0, 10080, 0),
+      bt_listen_port: $('#cfgBtPort').value.trim() || '6881-6999',
+      bt_enable_dht: $('#cfgDht').checked,
+      bt_trackers: $('#cfgTrackers').value.trim() || null,
     });
     closeModal('settingsModal');
   } catch (_) { /* 错误已提示 */ }
+}
+
+function clampFloat(v, min, max, dflt) {
+  const n = parseFloat(v);
+  if (!Number.isFinite(n)) return dflt;
+  return Math.min(max, Math.max(min, n));
 }
 
 /* ---------- 事件绑定 ---------- */
@@ -365,6 +485,8 @@ function bindEvents() {
   $('#btnNewTask').addEventListener('click', openNewTask);
   $('#btnEmptyNew').addEventListener('click', openNewTask);
   $('#btnSubmitTask').addEventListener('click', submitTask);
+  $('#btnChooseTorrent').addEventListener('click', chooseTorrent);
+  $('#torrentChip').addEventListener('click', () => setTorrentChip(null)); // 点击取消选择
   $('#btnChooseDir').addEventListener('click', async () => {
     try {
       const dir = await callApi('select_directory');
@@ -375,6 +497,19 @@ function bindEvents() {
   $('#btnSettings').addEventListener('click', openSettings);
   $('#btnCfgBrowse').addEventListener('click', browseConfigDir);
   $('#btnSaveConfig').addEventListener('click', saveConfig);
+
+  // 做种分享模式：点击卡片套用预设；手动改高级输入后自动变为"自定义"
+  $('#seedPresetGroup').addEventListener('click', (e) => {
+    const card = e.target.closest('.preset-card');
+    if (card) applySeedPreset(card.dataset.preset);
+  });
+  $('#seedPresetGroup').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const card = e.target.closest('.preset-card');
+    if (card) { e.preventDefault(); applySeedPreset(card.dataset.preset); }
+  });
+  $('#cfgSeedRatio').addEventListener('input', syncPresetFromInputs);
+  $('#cfgSeedTime').addEventListener('input', syncPresetFromInputs);
 
   $('#btnPauseAll').addEventListener('click', () => callWithToast('pause_all'));
   $('#btnResumeAll').addEventListener('click', () => callWithToast('resume_all'));

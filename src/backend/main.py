@@ -4,6 +4,7 @@ import os
 import sys
 import time
 import atexit
+import base64
 import threading
 from pathlib import Path
 
@@ -20,7 +21,7 @@ from src.backend.config import config_manager
 from src.backend.history import HistoryStore
 from src.backend.models import AppConfig, DownloadTaskCreate, DownloadTask
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 APP_TITLE = "Aria2c 下载器"
 
 logger = logging.getLogger("aria2c-ui")
@@ -161,6 +162,43 @@ class Api:
         aria2_client.resume_all()
         return {"message": "所有任务已继续"}
 
+    # ---- BT / 种子文件 ----
+
+    def select_torrent_file(self):
+        """打开原生文件选择框选取 .torrent 种子文件"""
+        result = webview.windows[0].create_file_dialog(
+            webview.OPEN_DIALOG,
+            allow_multiple=False,
+            file_types=("种子文件 (*.torrent)", "所有文件 (*.*)"),
+        )
+        if result and len(result) > 0:
+            return result[0]
+        return None
+
+    def create_torrent_task(self, payload: dict):
+        """从 .torrent 种子文件创建 BT 任务（含做种参数）"""
+        path = (payload.get("path") or "").strip()
+        if not path:
+            raise ValueError("未选择种子文件")
+        if Path(path).suffix.lower() != ".torrent":
+            raise ValueError("请选择 .torrent 种子文件")
+
+        torrent_path = Path(path)
+        if not torrent_path.is_file():
+            raise ValueError(f"文件不存在: {path}")
+        # 合理大小限制（种子文件通常 < 10MB），防止误选大文件
+        size = torrent_path.stat().st_size
+        if size > 10 * 1024 * 1024:
+            raise ValueError("种子文件超过 10MB，疑似选择错误")
+        with open(torrent_path, "rb") as f:
+            head = f.read(1)
+        if head != b"d":
+            raise ValueError("不是有效的种子文件（bencode 格式校验失败）")
+
+        save_dir = safe_save_dir(payload.get("save_dir"))
+        gid = aria2_client.add_torrent(path, save_dir)
+        return {"gids": [gid], "count": 1, "message": "BT 任务已创建"}
+
     # ---- 配置 ----
 
     def save_config(self, payload: dict):
@@ -171,6 +209,8 @@ class Api:
         allowed = {
             "default_download_dir", "default_connections", "default_splits",
             "max_concurrent_downloads", "max_overall_download_limit",
+            "bt_seed_ratio", "bt_seed_time", "bt_listen_port",
+            "bt_enable_dht", "bt_trackers",
         }
         for key in allowed & set(payload.keys()):
             data[key] = payload[key]
@@ -180,17 +220,28 @@ class Api:
             raise ValueError("配置写入失败，请检查 %APPDATA%/Aria2cUI 目录权限")
 
         # 立即同步可热更新的选项到 aria2
+        hot_updated = False
         if aria2_manager.is_running():
             try:
                 options = {
                     "max-concurrent-downloads": str(updated.max_concurrent_downloads),
+                    # BT 做种选项支持热更新（按任务对新建/后续任务生效）
+                    "seed-ratio": str(updated.bt_seed_ratio),
+                    "seed-time": str(updated.bt_seed_time),
                 }
                 if updated.max_overall_download_limit:
                     options["max-overall-download-limit"] = updated.max_overall_download_limit
+                if updated.bt_trackers is not None:
+                    trackers = ",".join(
+                        t.strip() for t in updated.bt_trackers.splitlines() if t.strip()
+                    )
+                    options["bt-tracker"] = trackers
                 aria2_client.change_global_option(options)
+                hot_updated = True
             except Aria2Error as e:
                 return {"message": f"配置已保存，但同步到 aria2 失败: {e}"}
-        return {"message": "配置已保存"}
+        note = "" if hot_updated else "（BT 选项将在重启应用后生效）"
+        return {"message": f"配置已保存{note}"}
 
     # ---- 原生对话框 / 系统集成 ----
 

@@ -182,7 +182,47 @@ input, textarea, select { font: inherit; color: inherit; }
 .stepper input { -moz-appearance: textfield; }
 .stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; }
 .hint { font-size: 12px; color: var(--text-2); margin-top: 12px; }
+.section-title { font-size: 13px; font-weight: 600; color: var(--text-1); margin: 16px 0 2px; padding-top: 12px; border-top: 1px solid var(--border); }
+.torrent-row { display: flex; align-items: center; gap: 10px; }
+.torrent-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; color: var(--brand); background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px;
+  cursor: pointer;
+}
+.torrent-chip:hover { border-color: var(--brand); }
+.divider { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; color: var(--text-2); font-size: 12px; }
+.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.check-row { display: flex !important; align-items: center; gap: 6px; margin: 8px 0 0 !important; font-size: 13px !important; color: var(--text-1) !important; cursor: pointer; }
+.check-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--brand); }
 .modal-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 18px; }
+
+/* ---------- 设置：做种分享模式卡片 ---------- */
+.preset-group { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.preset-card {
+  padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); cursor: pointer;
+  transition: border-color 0.1s, background 0.1s;
+}
+.preset-card:hover { border-color: var(--brand); }
+.preset-card.active { border-color: var(--brand); background: var(--brand-soft); }
+.preset-card:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.preset-head { display: flex; align-items: center; gap: 8px; }
+.preset-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.preset-tag { font-size: 11px; padding: 1px 7px; border-radius: 9px; line-height: 17px; }
+.preset-tag.off { background: var(--surface-2); color: var(--text-2); }
+.preset-tag.rec { background: var(--brand-soft); color: var(--brand-strong); }
+.preset-tag.max { background: var(--info); color: #fff; }
+.preset-card.active .preset-tag.rec { background: var(--brand); color: var(--on-brand); }
+.preset-desc { margin-top: 4px; font-size: 12px; color: var(--text-2); line-height: 1.55; }
+.adv-seed { margin-top: 12px; }
+.adv-seed summary { cursor: pointer; font-size: 12px; color: var(--text-2); user-select: none; }
+.adv-seed summary:hover { color: var(--text); }
+.adv-seed.is-custom summary::after { content: "（自定义）"; color: var(--warn); }
+.adv-seed .field-row { margin-top: 10px; }
+.adv-seed .hint { margin-top: 8px; }
 .app-version { margin-right: auto; font-size: 12px; color: var(--text-2); }
 
 /* ---------- 通知 ---------- */

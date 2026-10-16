@@ -36,6 +36,11 @@ class DownloadTask(BaseModel):
     progress: float = 0.0                       # 进度百分比
     is_bittorrent: bool = False                 # 是否为 BT/磁力任务
     error_message: Optional[str] = None         # 错误信息
+    # BT 专属字段（仅 is_bittorrent 时有值）
+    num_seeders: Optional[int] = None           # 做种人数（可用下载源）
+    num_files: Optional[int] = None             # 种子内文件数
+    upload_speed: int = 0                       # 上传（做种）速度（字节/秒）
+    seeding_time: Optional[int] = None          # 已做种时长（秒）
 
 
 class GlobalStats(BaseModel):
@@ -56,3 +61,9 @@ class AppConfig(BaseModel):
     max_overall_download_limit: Optional[str] = None
     aria2_rpc_port: int = 16800
     aria2_rpc_secret: Optional[str] = None
+    # BT / 做种设置
+    bt_seed_ratio: float = Field(1.0, ge=0, le=100, description="做种比率（下载量/上传量），0=不限制做种")
+    bt_seed_time: int = Field(0, ge=0, le=10080, description="做种时长（分钟），0=按比率控制")
+    bt_listen_port: str = Field("6881-6999", description="BT 监听端口，如 6881-6999")
+    bt_enable_dht: bool = Field(True, description="启用 DHT（公网发现）")
+    bt_trackers: Optional[str] = Field(None, description="附加 tracker 列表，每行一个")
