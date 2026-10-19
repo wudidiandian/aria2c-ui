@@ -43,20 +43,32 @@ jobs:
           if (-not (Test-Path dist/Aria2cUI.exe)) { throw "构建产物不存在" }
           "Aria2cUI.exe 大小: $([math]::Round((Get-Item dist/Aria2cUI.exe).Length/1MB,1)) MB"
 
-      # 从 CHANGELOG.md 提取当前 tag 对应版本的说明作为 Release 正文
-      - name: Extract release notes from CHANGELOG
+      # Release 正文 = 首次运行提示 + CHANGELOG 对应版本段落 + exe SHA256
+      - name: Prepare release notes
         shell: pwsh
         run: |
           $tag = "${{ github.ref_name }}"
           $ver = $tag.Substring(1)
-          $content = Get-Content CHANGELOG.md -Raw
+          $section = "Release $tag"
+          $content = Get-Content CHANGELOG.md -Raw -Encoding utf8
           $escaped = [regex]::Escape($ver)
           if ($content -match "(?s)## \[$escaped\].*?(?=\r?\n## \[|$)") {
             $section = $Matches[0] -replace "^## \[[^\]]+\][^\r\n]*\r?\n?", ""
-            Set-Content -Path release_notes.md -Value $section -Encoding utf8
-          } else {
-            Set-Content -Path release_notes.md -Value "Release $tag" -Encoding utf8
           }
+          $tip = @'
+          > [!NOTE]
+          > **首次运行被 Windows 或杀毒软件拦截？** 本应用暂未进行代码签名，属正常现象，任选其一即可：
+          > - 蓝色 SmartScreen 弹窗 → 点击 **更多信息** → **仍要运行**
+          > - 或右键 exe → **属性** → 勾选 **解除锁定** → 确定后再运行
+          > - 360 / 火绒 / 腾讯管家等报毒 → 选择「信任此文件」或加入白名单
+          >
+          > 下载后建议校验文件完整性，SHA256 见文末
+          '@
+          $hash = (Get-FileHash dist/Aria2cUI.exe -Algorithm SHA256).Hash.ToLower()
+          $bt = '`'
+          $checksum = "### 文件校验`n`n- SHA256：" + $bt + $hash + $bt + "`n- 校验命令：" + $bt + "certutil -hashfile Aria2cUI.exe SHA256" + $bt
+          $body = $tip + "`n`n" + $section + "`n`n---`n`n" + $checksum + "`n"
+          Set-Content -Path release_notes.md -Value $body -Encoding utf8
 
       - name: Publish GitHub Release
         env:
