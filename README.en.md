@@ -31,6 +31,7 @@ Aria2c UI is a desktop download client built on [aria2c](https://github.com/aria
 
 - **HTTP(S) downloads**: paste multiple links (one task per line); per-task connection count (-x), split count (-s), and speed limit
 - **BitTorrent / magnet links**: supports `magnet:?xt=urn:btih:...` and .torrent files with automatic metadata fetch and task naming
+- **BT file selection**: pick which files to download from multi-file torrents (at creation, editable per task); unselected files take no disk space
 - **Seeding management**: configurable seed ratio/time, DHT, extra trackers; task cards show seeders and share ratio
 - **Resumable downloads**: progress is written to the session file in real time; downloads resume after restarting the app or the computer
 - **Task history**: completed tasks survive restarts (aria2 itself does not persist them; this app stores history locally)
@@ -144,7 +145,7 @@ aria2c-ui/
 
 - [x] Windows single-file portable build
 - [x] BT enhancements: torrent files, seeding management
-- [ ] Selective file download for multi-file torrents
+- [x] Selective file download for multi-file torrents
 - [ ] Browser integration (extension to capture downloads)
 - [ ] i18n / localization
 - [ ] Linux / macOS support (platform-specific engine binaries and process management; architecture ready)

@@ -119,6 +119,43 @@ class Aria2Client:
         """修改 aria2 全局选项（立即生效）"""
         self.call("aria2.changeGlobalOption", [options])
 
+    def get_task_status(self, gid: str, keys: Optional[List[str]] = None) -> Dict[str, Any]:
+        """获取单个任务详情（tellStatus，可按 keys 过滤）"""
+        params: List[Any] = [gid]
+        if keys:
+            params.append(keys)
+        return self.call("aria2.tellStatus", params) or {}
+
+    def change_option(self, gid: str, options: Dict[str, str]) -> None:
+        """修改任务选项。
+
+        注意 aria2 限制：select-file 等选项仅对非活动（等待/已暂停）任务生效，
+        活动任务需先暂停再修改。
+        """
+        self.call("aria2.changeOption", [gid, options])
+
+    def get_bt_infohashes(self) -> set:
+        """获取当前活动/等待 BT 任务的 infoHash 集合（小写）。
+
+        不含已停止任务：已完成/已停止的种子允许重新添加下载。
+        aria2 对重复 infohash 的 BT 任务会在启动时报 duplicate download，
+        因此创建前需要用该集合做预检。
+        """
+        hashes: set = set()
+        for item in self.call("aria2.tellActive", [["infoHash"]]) or []:
+            if item.get("infoHash"):
+                hashes.add(item["infoHash"].lower())
+        offset = 0
+        for _ in range(MAX_PAGES):
+            batch = self.call("aria2.tellWaiting", [offset, PAGE_SIZE, ["infoHash"]]) or []
+            for item in batch:
+                if item.get("infoHash"):
+                    hashes.add(item["infoHash"].lower())
+            if len(batch) < PAGE_SIZE:
+                break
+            offset += PAGE_SIZE
+        return hashes
+
     # ---------- 任务操作 ----------
 
     def add_task(self, task_create: DownloadTaskCreate) -> List[str]:
@@ -178,17 +215,22 @@ class Aria2Client:
             return f"BT 磁力任务 ({match.group(1)[:12]})"
         return "BT 磁力任务"
 
-    def add_torrent(self, torrent_path: str, save_dir: Optional[str] = None) -> str:
+    def add_torrent(self, torrent_path: str, save_dir: Optional[str] = None,
+                    select_file: Optional[List[int]] = None) -> str:
         """添加 .torrent 种子文件任务，返回 gid。
 
         种子内即使包含多个文件，aria2 也按一个任务处理（文件保存在
         save_dir/<种子名>/ 下）。BT 任务不支持 out 参数重命名。
+        select_file：仅下载的文件索引列表（1 起始，与种子内文件顺序一致）；
+        None 下载全部文件。
         """
         cfg = config_manager.config
         with open(torrent_path, "rb") as f:
             torrent_b64 = base64.b64encode(f.read()).decode("ascii")
         # addTorrent 参数顺序：torrent, uris(文件 Web 种子，留空), options
         options = {"dir": save_dir or cfg.default_download_dir}
+        if select_file:
+            options["select-file"] = ",".join(str(i) for i in sorted(set(select_file)))
         gid = self.call("aria2.addTorrent", [torrent_b64, [], options])
         return gid
 
@@ -213,13 +255,63 @@ class Aria2Client:
         try:
             self.call("aria2.pause", [gid])
         except Aria2Error as e:
-            # 幂等处理：任务已完成/已暂停/不存在时静默成功，避免重复点击报错
+            msg = str(e)
+            # 幂等处理：任务不存在时静默成功，避免重复点击报错
+            if self._benign(msg, "is not found"):
+                return
+            if self._benign(msg, "cannot be paused now"):
+                # aria2 拒绝优雅暂停（如任务已在停止过程中），确认结果即可
+                self._ensure_paused(gid)
+                return
+            raise
+        # BT 任务的优雅暂停需等待 tracker 停止通告，实测可达数秒才生效：
+        # 短暂确认仍未暂停则 forcePause 立即生效，避免界面长期停留在"下载中"
+        self._ensure_paused(gid)
+
+    def pause_all(self) -> None:
+        self.call("aria2.pauseAll")
+        # 同 pause_task：优雅暂停对 BT 任务可能延迟数秒，确认后强制剩余活动任务
+        deadline = time.time() + 0.8
+        while time.time() < deadline:
+            if not self._active_gids():
+                return
+            time.sleep(0.2)
+        for gid in self._active_gids():
+            self._force_pause_quiet(gid)
+
+    def _status_of(self, gid: str) -> Optional[str]:
+        """查询任务状态，查询失败返回 None"""
+        try:
+            result = self.call("aria2.tellStatus", [gid, ["status"]])
+            return (result or {}).get("status")
+        except Aria2Error:
+            return None
+
+    def _active_gids(self) -> List[str]:
+        try:
+            items = self.call("aria2.tellActive", [["gid"]]) or []
+            return [item.get("gid") for item in items if item.get("gid")]
+        except Aria2Error:
+            return []
+
+    def _force_pause_quiet(self, gid: str) -> None:
+        """强制暂停；任务已在停止过程中等无害错误静默处理"""
+        try:
+            self.call("aria2.forcePause", [gid])
+        except Aria2Error as e:
             if self._benign(str(e), "cannot be paused now", "is not found"):
                 return
             raise
 
-    def pause_all(self) -> None:
-        self.call("aria2.pauseAll")
+    def _ensure_paused(self, gid: str) -> None:
+        """确认任务脱离活动态；最多等 0.8s，仍活动则 forcePause 立即生效"""
+        deadline = time.time() + 0.8
+        while time.time() < deadline:
+            if self._status_of(gid) != "active":
+                return
+            time.sleep(0.1)
+        if self._status_of(gid) == "active":
+            self._force_pause_quiet(gid)
 
     def resume_task(self, gid: str) -> None:
         try:
@@ -233,17 +325,23 @@ class Aria2Client:
         self.call("aria2.unpauseAll")
 
     def remove_task(self, gid: str) -> None:
-        """删除任务：remove 处理活动/等待任务，removeDownloadResult 清除停止列表中的残留。
+        """删除任务：先移除下载，再清除停止列表中的残留结果。
 
-        两步都要做：remove 成功后任务结果仍留在停止列表里（removed 状态），
-        必须再调 removeDownloadResult 才能彻底清除。
-        remove 是异步落账：刚 remove 的任务可能短暂不在停止列表中，
-        因此 removeDownloadResult 失败时短暂重试。
+        优雅 remove 对 BT 任务要等待 tracker 停止通告（实测可达数秒），
+        期间任务一直留在活动列表，removeDownloadResult 会报
+        "Could not remove download result"。因此删除以立即生效优先：
+        直接 forceRemove（不等待 tracker 优雅退出），失败再回退 remove。
+
+        removeDownloadResult 可能短暂查不到刚移除的任务，失败时带短重试。
         """
         try:
-            self.call("aria2.remove", [gid])
+            self.call("aria2.forceRemove", [gid])
         except Aria2Error:
-            pass
+            # 已停止/已完成的任务 forceRemove 会报错，回退普通 remove（同样可失败）
+            try:
+                self.call("aria2.remove", [gid])
+            except Aria2Error:
+                pass
         last_err: Optional[Aria2Error] = None
         for _ in range(5):
             try:

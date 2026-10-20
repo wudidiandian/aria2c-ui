@@ -44,6 +44,8 @@ const state = {
   aria2Error: null,
   appVersion: '',
   torrentFile: null,   // 新建任务弹窗中已选择的 .torrent 文件路径
+  torrentFiles: [],    // 所选种子的文件列表（多文件种子，供选择性下载）
+  fileTaskGid: null,   // 正在修改文件选择的 BT 任务 gid
 };
 
 const STATUS_TEXT = {
@@ -107,6 +109,7 @@ function createCard(task) {
       <div class="task-actions">
         <button class="icon-btn act-pause" title="暂停"></button>
         <button class="icon-btn act-resume" title="继续"></button>
+        <button class="icon-btn act-files" title="选择文件"></button>
         <button class="icon-btn act-folder" title="打开目录"></button>
         <button class="icon-btn danger act-delete" title="删除"></button>
       </div>
@@ -124,17 +127,20 @@ function createCard(task) {
     err: card.querySelector('.task-error'),
     pause: card.querySelector('.act-pause'),
     resume: card.querySelector('.act-resume'),
+    files: card.querySelector('.act-files'),
     folder: card.querySelector('.act-folder'),
     del: card.querySelector('.act-delete'),
   };
 
   refs.pause.innerHTML = pauseSvg();
   refs.resume.innerHTML = playSvg();
+  refs.files.innerHTML = filesSvg();
   refs.folder.innerHTML = folderSvg();
   refs.del.innerHTML = trashSvg();
 
   refs.pause.addEventListener('click', () => callWithToast('pause_task', task.gid));
   refs.resume.addEventListener('click', () => callWithToast('resume_task', task.gid));
+  refs.files.addEventListener('click', () => openTaskFiles(task));
   refs.del.addEventListener('click', async () => {
     const name = displayName(task);
     if (confirm(`确定删除任务「${name}」吗？`)) {
@@ -186,6 +192,11 @@ function updateCard(task) {
   // 按钮显隐
   refs.pause.hidden = task.status !== 'active';
   refs.resume.hidden = task.status !== 'paused' && task.status !== 'waiting';
+  // 多文件 BT 任务的「选择文件」按钮（下载中/等待/已暂停时可修改）
+  refs.files.hidden = !(
+    task.is_bittorrent && task.num_files > 1 &&
+    ['active', 'waiting', 'paused'].includes(task.status)
+  );
   refs.folder.hidden = !task.save_dir;
 }
 
@@ -327,8 +338,29 @@ async function chooseTorrent() {
   try {
     const path = await callApi('select_torrent_file');
     setTorrentChip(path || null);
+    if (path) await loadTorrentFiles(path);
   } catch (e) {
     toast(cleanError(e), 'error');
+  }
+}
+
+/* 解析所选种子：多文件种子显示文件列表供勾选，单文件种子跳过 */
+async function loadTorrentFiles(path) {
+  try {
+    const meta = await callApi('parse_torrent_file', { path });
+    if (meta.is_multi && meta.files.length > 1) {
+      state.torrentFiles = meta.files;
+      buildFileList($('#newFileList'), meta.files, () => true);
+      $('#torrentFiles').hidden = false;
+    } else {
+      state.torrentFiles = [];
+      $('#torrentFiles').hidden = true;
+    }
+  } catch (e) {
+    // 解析失败不阻塞任务创建：仍按全量下载
+    state.torrentFiles = [];
+    $('#torrentFiles').hidden = true;
+    toast(`读取种子文件列表失败：${cleanError(e)}`, 'error');
   }
 }
 
@@ -343,6 +375,8 @@ function setTorrentChip(path) {
     // 种子任务不需要连接数/分片数等 HTTP 专属项
     $('#taskUrls').placeholder = '已选择种子文件，链接输入框将被忽略';
   } else {
+    state.torrentFiles = [];
+    $('#torrentFiles').hidden = true;
     chip.hidden = true;
     chip.textContent = '';
     $('#taskUrls').placeholder =
@@ -353,11 +387,18 @@ function setTorrentChip(path) {
 async function submitTask() {
   // 种子文件优先：选择了 .torrent 则忽略链接输入
   if (state.torrentFile) {
+    const payload = {
+      path: state.torrentFile,
+      save_dir: $('#taskSaveDir').value || null,
+    };
+    // 多文件种子：仅下载勾选的文件（全部勾选时不传，等同全量）
+    if (state.torrentFiles.length > 0) {
+      const indices = selectedIndices($('#newFileList'));
+      if (indices.length === 0) { toast('请至少勾选一个要下载的文件', 'error'); return; }
+      if (indices.length < state.torrentFiles.length) payload.files = indices;
+    }
     try {
-      await callWithToast('create_torrent_task', {
-        path: state.torrentFile,
-        save_dir: $('#taskSaveDir').value || null,
-      });
+      await callWithToast('create_torrent_task', payload);
       closeModal('newTaskModal');
     } catch (_) { /* 错误已提示 */ }
     return;
@@ -388,6 +429,93 @@ function clampInt(v, min, max, dflt) {
   const n = parseInt(v, 10);
   if (!Number.isFinite(n)) return dflt;
   return Math.min(max, Math.max(1, n));
+}
+
+/* ---------- BT 文件选择（新建种子任务 / 已有任务共用渲染） ---------- */
+
+/* 拆分文件路径为目录前缀与文件名：
+ * 多文件种子路径首段为种子目录名（弹窗标题已展示），跳过 */
+function fileSplit(f) {
+  const parts = (Array.isArray(f.path)
+    ? f.path
+    : String(f.path || '').replace(/\\/g, '/').split('/')
+  ).filter(Boolean);
+  const name = parts[parts.length - 1] || '?';
+  const folder = parts.length > 2 ? parts.slice(1, -1).join('/') : '';
+  return { folder, name };
+}
+
+function buildFileList(listEl, files, getSelected) {
+  listEl.innerHTML = '';
+  for (const f of files) {
+    const { folder, name } = fileSplit(f);
+    const row = document.createElement('div');
+    row.className = 'file-row';
+    row.dataset.index = f.index;
+    row.dataset.length = f.length || 0;
+    row.innerHTML = `
+      <input type="checkbox" class="file-check">
+      <div class="file-label"><span class="file-folder"></span><span class="file-name"></span></div>
+      <span class="file-size"></span>`;
+    const cb = row.querySelector('.file-check');
+    cb.checked = getSelected ? !!getSelected(f) : true;
+    if (folder) row.querySelector('.file-folder').textContent = `${folder}/`;
+    row.querySelector('.file-name').textContent = name;
+    row.querySelector('.file-label').title = folder ? `${folder}/${name}` : name;
+    row.querySelector('.file-size').textContent = fmtBytes(f.length || 0);
+    row.addEventListener('click', (e) => {
+      if (e.target !== cb) cb.checked = !cb.checked;
+      updateFileSummary(listEl.closest('.file-select'));
+    });
+    listEl.appendChild(row);
+  }
+  updateFileSummary(listEl.closest('.file-select'));
+}
+
+function updateFileSummary(scope) {
+  if (!scope) return;
+  const rows = scope.querySelectorAll('.file-row');
+  let sel = 0, size = 0;
+  rows.forEach((row) => {
+    const checked = row.querySelector('.file-check').checked;
+    row.classList.toggle('checked', checked);
+    if (checked) { sel++; size += Number(row.dataset.length) || 0; }
+  });
+  const master = scope.querySelector('.file-master');
+  if (master) {
+    master.checked = rows.length > 0 && sel === rows.length;
+    master.indeterminate = sel > 0 && sel < rows.length;
+  }
+  scope.querySelector('.file-summary').textContent =
+    `已选 ${sel}/${rows.length} · ${fmtBytes(size)}`;
+}
+
+function selectedIndices(listEl) {
+  return [...listEl.querySelectorAll('.file-check:checked')]
+    .map((cb) => Number(cb.closest('.file-row').dataset.index));
+}
+
+/* 已有 BT 任务：查看/修改文件选择 */
+async function openTaskFiles(task) {
+  try {
+    const data = await callApi('get_task_files', task.gid);
+    state.fileTaskGid = task.gid;
+    $('#btFilesName').textContent = data.name || displayName(task);
+    buildFileList($('#btFileList'), data.files, (f) => f.selected);
+    openModal('btFilesModal');
+  } catch (e) {
+    toast(cleanError(e), 'error');
+  }
+}
+
+async function saveTaskFiles() {
+  if (!state.fileTaskGid) return;
+  const indices = selectedIndices($('#btFileList'));
+  if (indices.length === 0) { toast('请至少勾选一个要下载的文件', 'error'); return; }
+  try {
+    await callWithToast('set_task_files', state.fileTaskGid, indices);
+    closeModal('btFilesModal');
+  } catch (_) { /* 错误已提示 */ }
 }
 
 /* ---------- 设置 ---------- */
@@ -498,6 +626,16 @@ function bindEvents() {
   $('#btnCfgBrowse').addEventListener('click', browseConfigDir);
   $('#btnSaveConfig').addEventListener('click', saveConfig);
 
+  // BT 文件选择：主控「全选」复选框 + 已有任务弹窗保存
+  document.querySelectorAll('.file-master').forEach((master) => {
+    master.addEventListener('change', () => {
+      const scope = master.closest('.file-select');
+      scope.querySelectorAll('.file-check').forEach((cb) => { cb.checked = master.checked; });
+      updateFileSummary(scope);
+    });
+  });
+  $('#btnSaveFiles').addEventListener('click', saveTaskFiles);
+
   // 做种分享模式：点击卡片套用预设；手动改高级输入后自动变为"自定义"
   $('#seedPresetGroup').addEventListener('click', (e) => {
     const card = e.target.closest('.preset-card');
@@ -575,6 +713,9 @@ function pauseSvg() {
 }
 function playSvg() {
   return '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><polygon points="7 4 20 12 7 20 7 4"/></svg>';
+}
+function filesSvg() {
+  return '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg>';
 }
 function folderSvg() {
   return '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>';

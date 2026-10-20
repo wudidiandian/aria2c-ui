@@ -87,6 +87,16 @@
           </button>
           <span class="torrent-chip" id="torrentChip" hidden></span>
         </div>
+        <div id="torrentFiles" hidden>
+          <div class="file-select" id="newFilesScope">
+            <div class="file-list-head">
+              <label class="file-master-wrap"><input type="checkbox" class="file-master"> 全选</label>
+              <span class="file-summary"></span>
+            </div>
+            <div class="file-list" id="newFileList"></div>
+          </div>
+          <p class="hint">仅下载勾选的文件，未勾选的文件不会占用磁盘空间</p>
+        </div>
         <div class="divider"><span>或粘贴链接</span></div>
         <label>下载链接（每行一个，每个链接创建一个独立任务）</label>
         <textarea id="taskUrls" rows="5" placeholder="每行一个链接，每行将创建为独立任务&#10;https://example.com/file.zip&#10;magnet:?xt=urn:btih:...（支持磁力/BT）"></textarea>
@@ -220,6 +230,29 @@
       <div class="modal-actions">
         <span class="app-version" id="appVersion"></span>
         <button class="btn primary" id="btnSaveConfig">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BT 文件选择（已有任务） -->
+  <div class="modal-mask hidden" id="btFilesModal">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>选择下载文件</h3>
+        <button class="icon-btn" data-close="btFilesModal">✕</button>
+      </div>
+      <div class="bt-files-name" id="btFilesName"></div>
+      <div class="file-select">
+        <div class="file-list-head">
+          <label class="file-master-wrap"><input type="checkbox" class="file-master" id="btFileMaster"> 全选</label>
+          <span class="file-summary" id="btFileSummary"></span>
+        </div>
+        <div class="file-list" id="btFileList"></div>
+      </div>
+      <p class="hint">修改后任务会自动暂停并继续；未勾选的文件不会下载，已下载的部分会保留在磁盘上</p>
+      <div class="modal-actions">
+        <button class="btn ghost" data-close="btFilesModal">取消</button>
+        <button class="btn primary" id="btnSaveFiles">保存</button>
       </div>
     </div>
   </div>

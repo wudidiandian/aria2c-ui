@@ -20,8 +20,9 @@ from src.backend.aria2_process import aria2_manager
 from src.backend.config import config_manager
 from src.backend.history import HistoryStore
 from src.backend.models import AppConfig, DownloadTaskCreate, DownloadTask
+from src.backend.torrent_parser import parse_torrent, TorrentParseError
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 APP_TITLE = "Aria2c 下载器"
 
 logger = logging.getLogger("aria2c-ui")
@@ -175,29 +176,155 @@ class Api:
             return result[0]
         return None
 
-    def create_torrent_task(self, payload: dict):
-        """从 .torrent 种子文件创建 BT 任务（含做种参数）"""
-        path = (payload.get("path") or "").strip()
+    @staticmethod
+    def _validated_torrent_path(path: str) -> Path:
+        """种子文件基础校验：存在、后缀、合理大小"""
+        path = (path or "").strip()
         if not path:
             raise ValueError("未选择种子文件")
-        if Path(path).suffix.lower() != ".torrent":
-            raise ValueError("请选择 .torrent 种子文件")
-
         torrent_path = Path(path)
+        if torrent_path.suffix.lower() != ".torrent":
+            raise ValueError("请选择 .torrent 种子文件")
         if not torrent_path.is_file():
             raise ValueError(f"文件不存在: {path}")
         # 合理大小限制（种子文件通常 < 10MB），防止误选大文件
-        size = torrent_path.stat().st_size
-        if size > 10 * 1024 * 1024:
+        if torrent_path.stat().st_size > 10 * 1024 * 1024:
             raise ValueError("种子文件超过 10MB，疑似选择错误")
-        with open(torrent_path, "rb") as f:
-            head = f.read(1)
-        if head != b"d":
-            raise ValueError("不是有效的种子文件（bencode 格式校验失败）")
+        return torrent_path
+
+    def parse_torrent_file(self, payload: dict):
+        """解析种子文件返回文件列表（供新建任务时选择要下载的文件）"""
+        torrent_path = self._validated_torrent_path((payload or {}).get("path"))
+        try:
+            return parse_torrent(str(torrent_path))
+        except TorrentParseError as e:
+            raise ValueError(str(e))
+
+    def create_torrent_task(self, payload: dict):
+        """从 .torrent 种子文件创建 BT 任务（含做种参数与文件选择）"""
+        torrent_path = self._validated_torrent_path(payload.get("path"))
+        try:
+            meta = parse_torrent(str(torrent_path))
+        except TorrentParseError as e:
+            raise ValueError(str(e))
+
+        # aria2 对重复 infohash 的 BT 任务会在启动时报 duplicate download
+        #（表现为新任务立刻变成"出错"，提示 InfoHash-...），
+        # 创建前先查活动/等待任务的 infohash，重复则给出可操作的提示
+        info_hash = meta.get("info_hash")
+        if info_hash:
+            try:
+                existing = aria2_client.get_bt_infohashes()
+            except Aria2Error:
+                existing = set()
+            if info_hash in existing:
+                raise ValueError(
+                    "该种子已存在下载任务（同一种子不能同时下载两次）。"
+                    "请在任务列表中找到它，点「选择文件」修改要下载的文件"
+                )
+
+        # 可选：仅下载勾选的文件（索引与种子内文件顺序一致，1 起始）
+        select_file = payload.get("files")
+        if select_file is not None:
+            try:
+                select_file = [int(i) for i in select_file]
+            except (TypeError, ValueError):
+                raise ValueError("文件选择参数无效")
+            if not select_file or any(i < 1 for i in select_file) or len(set(select_file)) != len(select_file):
+                raise ValueError("请至少选择一个有效文件")
 
         save_dir = safe_save_dir(payload.get("save_dir"))
-        gid = aria2_client.add_torrent(path, save_dir)
+        try:
+            gid = aria2_client.add_torrent(str(torrent_path), save_dir, select_file=select_file)
+        except Aria2Error as e:
+            # 兜底：预检与添加之间极小概率产生的重复
+            if "duplicate download" in str(e) or "InfoHash-" in str(e):
+                raise ValueError(
+                    "该种子已存在下载任务（同一种子不能同时下载两次），"
+                    "请在任务列表中点该任务的「选择文件」修改要下载的文件"
+                )
+            raise
         return {"gids": [gid], "count": 1, "message": "BT 任务已创建"}
+
+    def get_task_files(self, gid: str):
+        """获取 BT 任务的文件列表与选中状态（用于查看/修改下载哪些文件）"""
+        data = aria2_client.get_task_status(
+            gid, ["bittorrent", "files", "dir", "status", "totalLength"]
+        )
+        bittorrent = data.get("bittorrent") or {}
+        if not bittorrent:
+            raise ValueError("仅 BT 任务支持文件选择")
+
+        # 元数据获取中（磁力任务刚创建）：无真实文件列表
+        bt_name = (bittorrent.get("info") or {}).get("name") or ""
+        raw_files = data.get("files") or []
+        if not raw_files or bt_name.startswith("[METADATA]") or any(
+            "[METADATA]" in f.get("path", "") for f in raw_files
+        ):
+            raise ValueError("任务元数据尚未获取完成，请稍后再试")
+
+        # 相对路径展示：去掉保存目录前缀，统一 / 分隔
+        dir_norm = (data.get("dir") or "").replace("\\", "/").rstrip("/")
+        files = []
+        for i, f in enumerate(raw_files, start=1):
+            rel = f.get("path", "").replace("\\", "/")
+            if dir_norm and rel.lower().startswith(dir_norm.lower() + "/"):
+                rel = rel[len(dir_norm) + 1:]
+            files.append({
+                "index": i,
+                "path": rel,
+                "length": int(f.get("length", 0)),
+                "selected": f.get("selected", "false") == "true",
+            })
+        return {
+            "name": bt_name,
+            "status": data.get("status", ""),
+            "files": files,
+        }
+
+    def set_task_files(self, gid: str, selected: list):
+        """修改 BT 任务要下载的文件（select-file）。
+
+        aria2 限制：changeOption 的 select-file 仅对非活动任务生效，
+        因此活动任务会自动「暂停 → 修改 → 继续」。
+        """
+        if not isinstance(selected, list) or not selected:
+            raise ValueError("请至少选择一个文件")
+        try:
+            indices = sorted({int(i) for i in selected})
+        except (TypeError, ValueError):
+            raise ValueError("文件选择参数无效")
+        if any(i < 1 for i in indices):
+            raise ValueError("文件选择参数无效")
+
+        detail = aria2_client.get_task_status(gid, ["status", "bittorrent"])
+        if not (detail.get("bittorrent") or {}):
+            raise ValueError("仅 BT 任务支持修改文件选择")
+        status = detail.get("status")
+        if status not in ("active", "waiting", "paused"):
+            raise ValueError("当前任务状态不支持修改文件选择")
+
+        # 活动任务先暂停；修改失败也要恢复原状
+        was_active = status == "active"
+        if was_active:
+            aria2_client.pause_task(gid)
+        try:
+            aria2_client.change_option(
+                gid, {"select-file": ",".join(str(i) for i in indices)}
+            )
+        except Exception:
+            if was_active:
+                try:
+                    aria2_client.resume_task(gid)
+                except Aria2Error:
+                    pass
+            raise
+        if was_active:
+            try:
+                aria2_client.resume_task(gid)
+            except Aria2Error:
+                pass  # 继续失败不阻塞：用户可手动继续
+        return {"message": "文件选择已更新"}
 
     # ---- 配置 ----
 

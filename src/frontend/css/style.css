@@ -198,6 +198,46 @@ input, textarea, select { font: inherit; color: inherit; }
 .check-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--brand); }
 .modal-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 18px; }
 
+/* ---------- BT 文件选择列表 ---------- */
+#torrentFiles { margin-top: 10px; }
+.file-select {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg); overflow: hidden;
+}
+.file-list-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; background: var(--surface-2);
+  border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.file-master-wrap {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text); cursor: pointer; user-select: none;
+}
+.file-master { width: 15px; height: 15px; accent-color: var(--brand); cursor: pointer; }
+.file-summary { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.file-list { max-height: 220px; overflow-y: auto; }
+.file-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 12px; cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.file-row:last-child { border-bottom: none; }
+.file-row:hover { background: var(--surface-2); }
+.file-check { width: 15px; height: 15px; accent-color: var(--brand); flex-shrink: 0; cursor: pointer; }
+.file-label {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; user-select: text;
+}
+.file-folder { color: var(--text-2); }
+.file-name { color: var(--text); }
+.file-row:not(.checked) .file-name { color: var(--text-2); }
+.file-size { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.bt-files-name {
+  font-size: 13px; color: var(--text-2);
+  margin-bottom: 10px; word-break: break-all;
+  padding-bottom: 10px; border-bottom: 1px solid var(--border);
+}
+
 /* ---------- 设置：做种分享模式卡片 ---------- */
 .preset-group { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .preset-card {
